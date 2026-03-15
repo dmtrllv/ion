@@ -18,6 +18,7 @@
 		"@ion/core": "file:../core",
 		"@ion/db": "file:../db",
 		"@ion/http": "file:../http",
+		"@ion/jsx": "file:../jsx",
 		"@ion/pg-db": "file:../pg-db",
 		"@ion/utils": "file:../utils",
 		"@ion/ws": "file:../ws",

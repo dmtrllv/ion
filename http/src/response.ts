@@ -1,7 +1,7 @@
 import type { App } from "@ion/core";
 import type { ServerReq, ServerRes } from "./server.js";
 
-export abstract class ResType<T> {
+export abstract class Response<T> {
 	public readonly value: T;
 	public constructor(value: T) {
 		this.value = value;
@@ -10,7 +10,7 @@ export abstract class ResType<T> {
 	public abstract write(app: App, req: ServerReq, res: ServerRes): any | Promise<any>;
 }
 
-export class JsonRes<T extends object | any[] | null> extends ResType<T> {
+export class JsonRes<T extends object | any[] | null> extends Response<T> {
 	public write(_app: App, _req: ServerReq, res: ServerRes) {
 		return new Promise<void>((resolve, reject) => {
 			const str = JSON.stringify(this.value);
@@ -26,7 +26,7 @@ export class JsonRes<T extends object | any[] | null> extends ResType<T> {
 	}
 }
 
-export class HtmlRes extends ResType<string> {
+export class HtmlRes extends Response<string> {
 	public write(_app: App, _req: ServerReq, res: ServerRes) {
 		return new Promise<void>((resolve, reject) => {
 			res.setHeader("Content-Type", "text/html");
@@ -41,7 +41,7 @@ export class HtmlRes extends ResType<string> {
 }
 
 
-export class TextRes extends ResType<string> {
+export class TextRes extends Response<string> {
 	public write(_app: App, _req: ServerReq, res: ServerRes) {
 		return new Promise<void>((resolve, reject) => {
 			res.setHeader("Content-Type", "text/plain");
@@ -55,7 +55,7 @@ export class TextRes extends ResType<string> {
 	}
 }
 
-export class RedirectRes extends ResType<string> {
+export class RedirectRes extends Response<string> {
 	public write(_app: App, _req: ServerReq, res: ServerRes) {
 		return new Promise<void>((resolve) => {
 			res.statusCode = 302;

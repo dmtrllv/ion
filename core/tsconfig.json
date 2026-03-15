@@ -1,0 +1,35 @@
+{
+	"compilerOptions": {
+		"module": "nodenext",
+		"target": "esnext",
+		"outDir": "./lib",
+		"rootDir": "./src",
+		"moduleResolution": "nodenext",
+		"experimentalDecorators": true,
+		"emitDecoratorMetadata": true,
+		"strict": true,
+		"lib": [
+			"ESNext",
+			"DOM"
+		],
+		"types": [
+			"node"
+		],
+		"skipLibCheck": true,
+		"verbatimModuleSyntax": true,
+		"moduleDetection": "force",
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"erasableSyntaxOnly": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUncheckedSideEffectImports": true,
+		"declaration": true,
+		"declarationDir": "./types",
+		"jsx": "react-jsx",
+		"jsxImportSource": "kernel",
+	},
+	"include": [
+		"src/**/*",
+	],
+	"extends": "@tsconfig/strictest/tsconfig.json"
+}

@@ -1,0 +1,35 @@
+{
+	"name": "@ion/core",
+	"version": "0.0.1",
+	"main": "dist/index.js",
+	"scripts": {
+		"build": "tsc",
+		"watch": "tsc -w"
+	},
+	"author": "Dimitri Lilov",
+	"type": "module",
+	"devDependencies": {
+		"@tsconfig/strictest": "^2.0.8",
+		"@types/node": "^25.3.3",
+		"typescript": "^5.9.3"
+	},
+	"dependencies": {
+		"@ion/utils": "file:../utils",
+		"reflect-metadata": "^0.2.2"
+	},
+	"files": [
+		"./lib",
+		"./src",
+		"./types",
+		"./package.json",
+		"./package-lock.json",
+		"./tsconfig.json"
+	],
+	"exports": {
+		".": {
+			"default": "./lib/index.js",
+			"types": "./types/index.d.ts"
+		}
+	},
+	"license": "MIT"
+}

@@ -1,0 +1,26 @@
+{
+	"name": "test-app",
+	"version": "0.0.1",
+	"main": "dist/index.js",
+	"scripts": {
+		"build": "tsc",
+		"watch": "tsc -w"
+	},
+	"license": "MIT",
+	"type": "module",
+	"devDependencies": {
+		"@tsconfig/strictest": "^2.0.8",
+		"@types/bcrypt": "^6.0.0",
+		"@types/node": "^25.5.0",
+		"typescript": "^5.9.3"
+	},
+	"dependencies": {
+		"@ion/core": "file:../core",
+		"@ion/db": "file:../db",
+		"@ion/http": "file:../http",
+		"@ion/pg-db": "file:../pg-db",
+		"@ion/utils": "file:../utils",
+		"@ion/ws": "file:../ws",
+		"bcrypt": "^6.0.0"
+	}
+}

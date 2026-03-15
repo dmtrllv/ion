@@ -1,0 +1,39 @@
+{
+	"name": "@ion/pg-db",
+	"version": "0.0.1",
+	"main": "dist/index.js",
+	"scripts": {
+		"build": "tsc",
+		"watch": "tsc -w"
+	},
+	"author": "Dimitri Lilov",
+	"type": "module",
+	"devDependencies": {
+		"@tsconfig/strictest": "^2.0.8",
+		"@types/node": "^25.3.3",
+		"@types/pg": "^8.18.0",
+		"typescript": "^5.9.3"
+	},
+	"dependencies": {
+		"@ion/core": "file:../core",
+		"@ion/db": "file:../db",
+		"@ion/utils": "file:../utils",
+		"pg": "^8.20.0",
+		"reflect-metadata": "^0.2.2"
+	},
+	"files": [
+		"./lib",
+		"./src",
+		"./types",
+		"./package.json",
+		"./package-lock.json",
+		"./tsconfig.json"
+	],
+	"exports": {
+		".": {
+			"default": "./lib/index.js",
+			"types": "./types/index.d.ts"
+		}
+	},
+	"license": "MIT"
+}

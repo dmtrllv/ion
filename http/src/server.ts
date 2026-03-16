@@ -1,10 +1,11 @@
 import { Transport } from "@ion/core";
 import * as http from "node:http";
 import * as https from "node:https";
-import type { HttpContext } from "./context.js";
 import { Router } from "./router.js";
+import type { HttpMethod } from "./route.js";
+import { Response } from "./response.js";
 
-type NodeServer = https.Server<typeof http.IncomingMessage, typeof http.ServerResponse>;
+type NodeServer = http.Server<typeof http.IncomingMessage, typeof http.ServerResponse>;
 
 export type ServerReq = http.IncomingMessage;
 export type ServerRes = http.ServerResponse & { req: ServerReq };
@@ -18,7 +19,7 @@ export type HttpOptions = {
 	};
 };
 
-export class HttpServer extends Transport<HttpContext> {
+export class HttpServer extends Transport {
 	protected readonly config: HttpOptions;
 	protected readonly server: NodeServer;
 
@@ -50,13 +51,42 @@ export class HttpServer extends Transport<HttpContext> {
 		if (tls) {
 			return https.createServer(tls, this.handler);
 		} else {
-			return https.createServer(this.handler);
+			return http.createServer(this.handler);
 		}
 	}
 
-	protected readonly handler = (req: http.IncomingMessage, res: http.OutgoingMessage) => {
-		console.log(`[${req.method}] ${req.url}`);
-		res.end();
+	protected readonly handler = async (req: ServerReq, res: ServerRes) => {
+		if (!req.url)
+			return res.end();
+
+		const matchedRoute = this.router.getRoute(req.url!);
+		
+		if(!matchedRoute)
+			return res.end();
+		const { route, params } = matchedRoute;
+		const handler = route.handlers[req.method as HttpMethod];
+		
+		if (!handler)
+			return res.end();
+
+		const controller = new handler.Controller();
+		console.log(handler);
+		const args = await Promise.all(handler.paramInjectors.map(injector => {
+			// Todo this should be checked in the method decorator
+			if(!injector) {
+				console.log("missing injector?");
+				return undefined;
+			}
+			return injector(req, params);
+		}));
+	
+		const response = await handler.fn.call(controller, ...args) as Response<any>;
+		if(response instanceof Response) {
+			await response.write(req, res);
+		} else {
+			res.write(JSON.stringify(response));
+		}
+		return res.end();
 	}
 
 	public override start(): Promise<void> {

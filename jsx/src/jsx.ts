@@ -30,3 +30,13 @@ declare global {
 		type Element = SyncElement | AsyncElement;
 	}
 }
+
+export function jsx(...args: any[]): any {
+	console.log("jsx", ...args);
+}
+
+
+export function jsxs(...args: any[]): any {
+	console.log("jsxs", ...args);
+}
+

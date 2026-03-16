@@ -26,4 +26,8 @@ app.use(
 	pg(pgOptions)
 );
 
-app.start();
+app.start().then(result => {
+	if(result.isErr()) {
+		console.log(result.error);
+	}
+});

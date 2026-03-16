@@ -1,4 +1,3 @@
-import type { App } from "@ion/core";
 import type { ServerReq, ServerRes } from "./server.js";
 
 export abstract class Response<T> {
@@ -6,12 +5,11 @@ export abstract class Response<T> {
 	public constructor(value: T) {
 		this.value = value;
 	}
-
-	public abstract write(app: App, req: ServerReq, res: ServerRes): any | Promise<any>;
+	public abstract write(req: ServerReq, res: ServerRes): any | Promise<any>;
 }
 
 export class JsonRes<T extends object | any[] | null> extends Response<T> {
-	public write(_app: App, _req: ServerReq, res: ServerRes) {
+	public write(_req: ServerReq, res: ServerRes) {
 		return new Promise<void>((resolve, reject) => {
 			const str = JSON.stringify(this.value);
 
@@ -27,7 +25,7 @@ export class JsonRes<T extends object | any[] | null> extends Response<T> {
 }
 
 export class HtmlRes extends Response<string> {
-	public write(_app: App, _req: ServerReq, res: ServerRes) {
+	public write(_req: ServerReq, res: ServerRes) {
 		return new Promise<void>((resolve, reject) => {
 			res.setHeader("Content-Type", "text/html");
 			res.setHeader("Content-Length", this.value.length);
@@ -42,7 +40,7 @@ export class HtmlRes extends Response<string> {
 
 
 export class TextRes extends Response<string> {
-	public write(_app: App, _req: ServerReq, res: ServerRes) {
+	public write(_req: ServerReq, res: ServerRes) {
 		return new Promise<void>((resolve, reject) => {
 			res.setHeader("Content-Type", "text/plain");
 			res.setHeader("Content-Length", this.value.length);
@@ -56,7 +54,7 @@ export class TextRes extends Response<string> {
 }
 
 export class RedirectRes extends Response<string> {
-	public write(_app: App, _req: ServerReq, res: ServerRes) {
+	public write(_req: ServerReq, res: ServerRes) {
 		return new Promise<void>((resolve) => {
 			res.statusCode = 302;
 			res.setHeader("location", this.value);

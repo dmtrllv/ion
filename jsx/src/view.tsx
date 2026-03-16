@@ -19,6 +19,6 @@ export abstract class View<P = {}> {
 	public abstract render(): any;
 }
 
-export const api = <T extends typeof Api>(type: T): PropertyDecorator => (target, key) => {
+export const api = <T extends typeof Api>(_type: T): PropertyDecorator => (_target, _key) => {
 
 }

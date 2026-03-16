@@ -1,16 +1,18 @@
-import { Controller, get, param, route } from "@ion/http";
-import { view } from "@ion/jsx";
-import { Users } from "../views/users.js";
+import { get, param, route } from "@ion/http";
+import { jsx, view } from "@ion/jsx";
+import { UserRow } from "../views/users.js";
+import { Controller } from "@ion/core";
 
 @route("/users")
 export class UsersRoute extends Controller {
-	@get()
+	@get("/")
 	public async viewUsers() {
 		return view(123);
 	}
 
 	@get("/:id")
-	public async viewUser(@param id: number) {
-		return view(Users);
+	public async viewUser(@param(":id") id: number) {
+		console.log(id)
+		return view(jsx(UserRow));
 	}
 }

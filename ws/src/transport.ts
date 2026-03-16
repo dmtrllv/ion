@@ -1,5 +1,4 @@
 import { Transport } from "@ion/core";
-import type { WsContext } from "./context.js";
 import { HttpServer } from "@ion/http";
 
 export type WsOptions = {
@@ -11,7 +10,7 @@ export type WsOptions = {
 	};
 };
 
-export class WsTransport extends Transport<WsContext> {
+export class WsTransport extends Transport {
 	protected readonly config: WsOptions;
 	protected readonly server: HttpServer;
 	protected readonly usesOwnServer: boolean;
@@ -26,6 +25,5 @@ export class WsTransport extends Transport<WsContext> {
 	public override async start(): Promise<void> {
 		if (this.usesOwnServer)
 			await this.server.start();
-		
 	}
 }

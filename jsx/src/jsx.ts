@@ -1,5 +1,5 @@
 import type { Constructor } from "@ion/utils";
-import type { View, ViewProps } from "./view.js";
+import type { View } from "./view.js";
 
 declare global {
 	namespace JSX {

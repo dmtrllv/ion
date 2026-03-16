@@ -1,14 +1,14 @@
 import type { Controller } from "@ion/core";
 import type { MaybePromise } from "@ion/utils";
 
-export abstract class View<P = {}> {
+export abstract class View<P extends {} = {}> {
 	public props: P;
 
 	protected get state(): Awaited<ReturnType<typeof this["load"]>> {
 		return this.load(this.props) as any;
 	}
 
-	public constructor(props: P) {
+	public constructor(props: P = {} as P) {
 		this.props = props;
 	}
 

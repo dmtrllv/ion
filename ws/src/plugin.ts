@@ -7,8 +7,12 @@ import { WsTransport, type WsOptions } from "./transport.js";
 @runAfter(HttpPlugin)
 export class WsPlugin extends Plugin<WsOptions> {
 	public override install(app: App): MaybePromise<void> {
-		const server = app.getTransport(HttpServer).or(undefined);
-		app.registerTransport(new WsTransport(this.config, server));
+		let server = app.getTransport(HttpServer);
+		const usesOwnServer = server === null;
+		if (server === null) {
+			server = app.registerTransport(new HttpServer(this.config));
+		}
+		app.registerTransport(new WsTransport(this.config, usesOwnServer, server));
 	}
 }
 

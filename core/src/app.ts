@@ -28,11 +28,12 @@ export class App {
 		plugins.forEach(p => this.plugins.add(p));
 	}
 
-	public registerTransport(transport: Transport) {
+	public registerTransport<T extends Transport>(transport: T): T {
 		this.transports.register(transport);
+		return transport;
 	}
 
-	public getTransport<T extends Transport>(type: Constructor<T>): Result<T, Error> {
+	public getTransport<T extends Transport>(type: Constructor<T>): T | null {
 		return this.transports.get(type);
 	}
 

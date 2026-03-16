@@ -15,11 +15,11 @@ export class WsTransport extends Transport {
 	protected readonly server: HttpServer;
 	protected readonly usesOwnServer: boolean;
 
-	public constructor(config: WsOptions, server?: HttpServer | undefined) {
+	public constructor(config: WsOptions, usesOwnServer: boolean, server: HttpServer) {
 		super();
 		this.config = config;
-		this.usesOwnServer = server === undefined;
-		this.server = server || new HttpServer(config);
+		this.usesOwnServer = usesOwnServer;
+		this.server = server;
 	}
 
 	public override async start(): Promise<void> {

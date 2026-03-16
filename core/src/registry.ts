@@ -22,11 +22,11 @@ export class Registry<T extends {}> {
 		return Ok();
 	}
 
-	public get<U extends T>(type: Constructor<U>): Result<U, Error> {
+	public get<U extends T>(type: Constructor<U>): U | null {
 		if (!this.items.has(type)) {
-			return Err(new Error(`Type ${type.name} is not registered!`));
+			return null;
 		}
-		return Ok(this.items.get(type)! as U);
+		return this.items.get(type)! as U;
 	}
 
 	public all(): readonly T[] {

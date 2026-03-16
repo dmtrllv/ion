@@ -1,4 +1,4 @@
-import { Entity } from "@ion/core";
+import { Entity, type ID } from "@ion/core";
 import type { MaybePromise } from "@ion/utils";
 
 export abstract class Model extends Entity {
@@ -44,7 +44,16 @@ export abstract class Model extends Entity {
 		return meta.type;
 	}
 
+	//public static create<T extends typeof Model, P extends ModelProps<InstanceType<T>>>(this: T, props: P): P {
+	//	return props;
+	//} 
 }
+
+type IdKeys<T extends Model> = {
+	[K in keyof T]: T[K] extends ID<any> ? K : never;
+}[keyof T];
+
+export type ModelProps<T extends Model> = Omit<T, IdKeys<T>>;
 
 export const primary = Model.primary;
 

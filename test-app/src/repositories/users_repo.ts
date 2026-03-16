@@ -23,7 +23,7 @@ export class UsersRepo extends Repository<User> {
 		throw new Error("Method not implemented.");
 	}
 
-	override query(_filter: Query<User> | Query<User>[]): Promise<void> {
+	override query<Q extends Query<User> | Query<User>[]>(_query: Q): Promise<Partial<User>[]> {
 		throw new Error("Method not implemented.");
 	}
 }

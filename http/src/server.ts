@@ -70,11 +70,10 @@ export class HttpServer extends Transport {
 			return res.end();
 
 		const controller = new handler.Controller();
-		console.log(handler);
 		const args = await Promise.all(handler.paramInjectors.map(injector => {
 			// Todo this should be checked in the method decorator
 			if(!injector) {
-				console.log("missing injector?");
+				console.error("missing injector?");
 				return undefined;
 			}
 			return injector(req, params);

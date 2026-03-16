@@ -1,3 +1,6 @@
+import type { Constructor } from "@ion/utils";
+import type { View, ViewProps } from "./view.js";
+
 declare global {
 	namespace JSX {
 		type HtmlProps<T extends HTMLElement> = {
@@ -20,23 +23,34 @@ declare global {
 
 		type WithChildren<P extends {} = {}> = P & { children: Children };
 
-		type PrimitiveElement = string | number | boolean | null;
-
 		type FC<P extends {} = {}> = (props: P) => JSX.Element;
 
-		type SyncElement = PrimitiveElement;
+
+		type PrimitiveElement = string | number | boolean | null;
+
+		type ViewElement<T extends View<any>, Args extends any[]> = {
+			type: Constructor<T, Args>,
+			args: Args,
+		};
+
+		type SyncElement = PrimitiveElement | ViewElement<any, any>;
 		type AsyncElement = Promise<SyncElement>;
 
 		type Element = SyncElement | AsyncElement;
 	}
 }
 
+export function jsx<K extends keyof JSX.IntrinsicElements>(tag: K, props: JSX.IntrinsicElements[K]): any;
+export function jsx<T extends JSX.FC<P>, P extends {}>(fn: T, props: P): any;
+export function jsx<T extends View<any>, Args extends any[]>(type: Constructor<T, Args>, ...args: Args): any;
 export function jsx(...args: any[]): any {
 	console.log("jsx", ...args);
 }
-
 
 export function jsxs(...args: any[]): any {
 	console.log("jsxs", ...args);
 }
 
+export function Fragment(...args: any[]): any {
+	console.log("Fragment", ...args);
+}

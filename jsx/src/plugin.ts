@@ -1,7 +1,9 @@
 import { App, Plugin } from "@ion/core";
 
-export class JsxPlugin extends Plugin {
+export class JsxPlugin extends Plugin<{}> {
 	override install(_app: App): void {
-		
+
 	}
 }
+
+export const jsxCompiler = () => new JsxPlugin({});

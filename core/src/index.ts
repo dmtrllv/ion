@@ -7,3 +7,4 @@ export * from "./repository.js";
 export * from "./id.js";
 export * from "./entity.js";
 export * from "./env.js";
+export * from "./service.js";

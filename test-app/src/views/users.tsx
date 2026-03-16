@@ -1,12 +1,12 @@
-import { api, List, View } from "@ion/jsx";
-import { UsersApi } from "../routes/api/users.js";
+import { inject, List, View } from "@ion/jsx";
+import { UsersApi } from "../controllers/api/users.js";
 import type { User } from "../models/user.js";
 
-export class Users extends View {
-	@api(UsersApi)
+export class UsersPage extends View {
+	@inject(UsersApi)
 	public readonly usersApi!: UsersApi;
 
-	public override async load() {
+	override async load() {
 		return this.usersApi.getUsers();
 	}
 
@@ -19,6 +19,6 @@ export class Users extends View {
 
 export const UserRow = ({ id, username, email }: User) => (
 	<div>
-		{id} - {username} - {email}
+		{id?.value || "null"} - {username} - {email}
 	</div>
 );

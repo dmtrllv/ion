@@ -1,3 +1,4 @@
+import type { ID } from "@ion/core";
 import { column, Model, primary } from "@ion/db";
 import { Pg } from "@ion/pg-db";
 import { hash } from "bcrypt";
@@ -5,7 +6,7 @@ import { hash } from "bcrypt";
 @Pg.register("users")
 export class User extends Model {
 	@primary
-	public readonly id!: number;
+	public readonly id?: ID<User>;
 	
 	@column({ length: 24, unique: true })
 	public username!: string;

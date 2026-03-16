@@ -1,7 +1,7 @@
-import { body, get, Request, route } from "@ion/http";
+import { body, get, param, Request, route } from "@ion/http";
+import { Controller, createId, service } from "@ion/core";
 import { User } from "../../models/user.js";
-import { Controller, repo, Store, store } from "@ion/core";
-import { UsersRepo } from "../../repositories/users_repo.js";
+import { UsersService } from "../../services/users.js";
 
 export class CreateUserReq extends Request {
 	public readonly username: string;
@@ -18,26 +18,21 @@ export class CreateUserReq extends Request {
 
 @route("/api/users")
 export class UsersApi extends Controller {
-	// use the users repository with buisness/domain logic
-	@repo()
-	public readonly usersRepo!: UsersRepo;
-
-	// or use the users store directly for simple CRUD
-	@store(User)
-	public readonly usersStore!: Store<User>;
-
+	@service()
+	public readonly service!: UsersService;
+	
 	@get("/")
 	public getUsers(): Promise<User[]> {
-		return this.usersRepo.getAll();
+		return this.service.getAllUsers();
 	}
 
-	@get("/raw")
-	public getUsersRaw(): Promise<User[]> {
-		return this.usersStore.getAll();
+	@get("/:id")
+	public getUser(@param("id") id: number): Promise<User | null> {
+		return this.service.getUser(createId(User, id));
 	}
 
 	@get("/create")
 	public async createUser(@body req: CreateUserReq) {
-		console.log(req.username);
+		this.service.createUser(req.username, req.email, req.password);
 	}
 }

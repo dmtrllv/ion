@@ -1,24 +1,26 @@
-import type { Api } from "@ion/http";
+import type { Controller } from "@ion/core";
 import type { MaybePromise } from "@ion/utils";
 
 export abstract class View<P = {}> {
 	public props: P;
-	
+
 	protected get state(): Awaited<ReturnType<typeof this["load"]>> {
-		return this.load() as any;
+		return this.load(this.props) as any;
 	}
 
 	public constructor(props: P) {
 		this.props = props;
 	}
 
-	public load(): MaybePromise<unknown> {
-		return undefined
+	public load(_props: P): MaybePromise<{}> {
+		return {}
 	}
 
-	public abstract render(): any;
+	public abstract render(props: P): any;
 }
 
-export const api = <T extends typeof Api>(_type: T): PropertyDecorator => (_target, _key) => {
-
+export const inject = <T extends typeof Controller>(type: T): PropertyDecorator => (target, key) => {
+	console.log("use controller", type, target, key);
 }
+
+export type ViewProps<T extends View<any>> = T extends View<infer P> ? P : never;

@@ -6,12 +6,14 @@ export abstract class Repository<T extends Entity> {
 	public abstract getAll(): Promise<T[]>;
 	public abstract save(entity: T): Promise<void>;
 	public abstract delete(id: ID<T>): Promise<void>;
-	public abstract query(filter: Query<T> | Query<T>[]): Promise<void>;
+	public abstract query<Q extends Query<T> | Query<T>[]>(query: Q): Promise<QueryResult<T, Q>>;
 }
 
 export type Query<T> = {
-	[K in keyof T]: T[K] | T[K][];
+	[K in keyof T]?: T[K] | T[K][];
 };
+
+export type QueryResult<T extends Entity, Q extends Query<T> | Query<T>[]> = {} & Partial<T>[];
 
 type RepoType<T> = T extends Repository<infer U> ? U : never;
 

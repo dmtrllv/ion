@@ -1,6 +1,6 @@
 import { ctx, inject, RouteContext, View } from "@ion/jsx";
-import { UsersApi } from "../controllers/api/users.js";
-import type { User } from "../models/user.js";
+import { UsersApi } from "../../controllers/api/users.js";
+import type { User } from "../../models/user.js";
 
 export class UserPage extends View {
 	@inject(UsersApi)

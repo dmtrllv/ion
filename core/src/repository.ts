@@ -13,7 +13,7 @@ export type Query<T> = {
 	[K in keyof T]?: T[K] | T[K][];
 };
 
-export type QueryResult<T extends Entity, Q extends Query<T> | Query<T>[]> = {} & Partial<T>[];
+export type QueryResult<T extends Entity, _Q extends Query<T> | Query<T>[]> = {} & Partial<T>[];
 
 type RepoType<T> = T extends Repository<infer U> ? U : never;
 

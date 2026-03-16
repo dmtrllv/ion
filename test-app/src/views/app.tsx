@@ -1,10 +1,11 @@
-import { Route, Redirect, View } from "@ion/jsx"
-import { HomePage } from "./home.js";
-import { UsersPage } from "./users.js";
-import { UserPage } from "./user.js";
+import { Route, Redirect, View, client } from "@ion/jsx";
+import { HomePage, UserPage, UsersPage } from "./pages/index.js";
 
+@client({
+	imports: ["./pages/index.js"]
+})
 export class App extends View {
-	override render() {
+	public override render() {
 		return (
 			<>
 				<h1>Hello Ion JSX App :D</h1>

@@ -39,7 +39,7 @@ export class HttpServer extends Transport {
 		return "http";
 	}
 
-	protected readonly router = new Router();
+	public readonly router = new Router();
 
 	public constructor(config: HttpOptions) {
 		super();

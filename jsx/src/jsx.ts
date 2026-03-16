@@ -43,8 +43,12 @@ declare global {
 export function jsx<K extends keyof JSX.IntrinsicElements>(tag: K, props: JSX.IntrinsicElements[K]): any;
 export function jsx<T extends JSX.FC<P>, P extends {}>(fn: T, props: P): any;
 export function jsx<T extends View<any>, Args extends any[]>(type: Constructor<T, Args>, ...args: Args): any;
-export function jsx(...args: any[]): any {
-	console.log("jsx", ...args);
+export function jsx(type: any, props: any = {}, ...args: any): any {
+	return {
+		type,
+		props,
+		args
+	};
 }
 
 export function jsxs(...args: any[]): any {

@@ -1,5 +1,5 @@
 import type { App } from "./app.js";
-import { Err, Ok, type MaybePromise, type Result } from "@ion/utils";
+import { Err, Ok, type Constructor, type MaybePromise, type Result } from "@ion/utils";
 
 type ExecOrder = {
 	readonly before: typeof Plugin[],
@@ -23,6 +23,11 @@ export class DepCycleError extends Error {
 	}
 }
 
+export type RequiredPlugin = {
+	type: Constructor<Plugin<any>>;
+	config: any;
+}
+
 export const sortExecOrder = (plugins: Set<Plugin>): Result<Plugin[], DepCycleError> => {
 	const orderedPlugins: Plugin[] = [];
 	const cycles: string[] = [];
@@ -39,8 +44,8 @@ export const sortExecOrder = (plugins: Set<Plugin>): Result<Plugin[], DepCycleEr
 			if (a === b) continue;
 			const bCtor = b.constructor as typeof Plugin;
 
-			if (aCtor.execOrder.before.includes(bCtor)) list.push(b);
-			if (aCtor.execOrder.after.includes(bCtor)) {
+			if (aCtor.execOrder?.before.includes(bCtor)) list.push(b);
+			if (aCtor.execOrder?.after.includes(bCtor)) {
 				(edges.get(b) ?? edges.set(b, []).get(b)!).push(a);
 			}
 		}
@@ -76,15 +81,16 @@ export const sortExecOrder = (plugins: Set<Plugin>): Result<Plugin[], DepCycleEr
 		visit(p);
 
 	orderedPlugins.reverse();
-	
-	if(cycles.length !== 0)
+
+	if (cycles.length !== 0)
 		return Err(new DepCycleError(cycles))
 
 	return Ok(orderedPlugins);
-}
+};
 
 export abstract class Plugin<T extends {} = {}> {
-	public static readonly execOrder: ExecOrder = createExecOrder();
+	public static execOrder?: ExecOrder;
+	public static requiredPlugins?: RequiredPlugin[];
 
 	public readonly config: T;
 
@@ -93,17 +99,39 @@ export abstract class Plugin<T extends {} = {}> {
 	}
 
 	public abstract install(app: App): MaybePromise<void>;
-	public uninstall(_app: App): MaybePromise<void> {}
-}
+	public uninstall(_app: App): MaybePromise<void> { }
+};
 
-export const runAfter = <T extends typeof Plugin<any>>(type: T): ClassDecorator => (target: unknown) => {
-	const ctor = target as typeof Plugin<any>;
-	ctor.execOrder.after.push(type);
-	type.execOrder.before.push(ctor);
-}
+export const runAfter = <T extends typeof Plugin<any>[]>(...types: T): ClassDecorator => (target: unknown) => {
+	types.forEach(type => {
+		const ctor = target as typeof Plugin<any>;
+		if (!ctor.execOrder)
+			ctor.execOrder = createExecOrder();
+		ctor.execOrder.after.push(type);
+		if (!type.execOrder)
+			type.execOrder = createExecOrder();
+		type.execOrder.before.push(ctor);
+	});
+};
 
-export const runBefore = <T extends typeof Plugin<any>>(type: T): ClassDecorator => (target: unknown) => {
+export const runBefore = <T extends typeof Plugin<any>[]>(...types: T): ClassDecorator => (target: unknown) => {
+	types.forEach(type => {
+		const ctor = target as typeof Plugin<any>;
+		if (!ctor.execOrder)
+			ctor.execOrder = createExecOrder();
+		ctor.execOrder.before.push(type);
+		if (!type.execOrder)
+			type.execOrder = createExecOrder();
+		type.execOrder.after.push(ctor);
+	});
+};
+
+export const requires = <T extends Plugin<any>>(type: new (...args: any[]) => T, config: PluginConfig<T>): ClassDecorator => (target: unknown) => {
 	const ctor = target as typeof Plugin<any>;
-	ctor.execOrder.before.push(type);
-	type.execOrder.after.push(ctor);
-}
+	runAfter(type)(ctor);
+	if (!ctor.requiredPlugins)
+		ctor.requiredPlugins = [];
+	ctor.requiredPlugins.push({ type, config });
+};
+
+export type PluginConfig<T> = T extends Plugin<infer C> ? C : never;

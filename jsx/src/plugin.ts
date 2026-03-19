@@ -1,16 +1,21 @@
-import { App, Plugin, requires } from "@ion/core";
-import type { View } from "./view.js";
-import type { Constructor } from "@ion/utils";
-import { HttpPlugin, HttpServer } from "@ion/http";
-import { Compiler } from "./client/compiler.js";
-import path from "node:path";
-import ts from "typescript";
+import { App, Controller, Plugin, requires } from "@ion/core";
+import type { View, ViewType } from "./view.js";
+import { HttpPlugin, HttpServer, Response, type ServerReq, type ServerRes } from "@ion/http";
+import { Compiler } from "./server/compiler.js";
+import { DepResolver } from "./server/resolver.js";
+import { AppRes } from "./server/renderer.js";
 
 export type JsxCompilerOptions = {
-	App: Constructor<View>;
-	/** The base path for the router */
+	App: ViewType<View>;
 	basePath: string;
 };
+
+class JsRes extends Response<string> {
+	override write(_: ServerReq, res: ServerRes) {
+		res.setHeader("Content-Type", "application/javascript");
+		res.write(this.value);
+	}
+}
 
 @requires(HttpPlugin, { host: "localhost", port: 3001 })
 export class JsxPlugin extends Plugin<JsxCompilerOptions> {
@@ -19,122 +24,46 @@ export class JsxPlugin extends Plugin<JsxCompilerOptions> {
 
 		if (!server)
 			return console.warn("Expected to have an http server!");
+
+		const deps = DepResolver.resolve(this.config.App);
+
 		const compiler = new Compiler();
 
-		const bundle = compiler.compile(this.config.App);
+		compiler.compileDependencies(deps);
 
-		console.log("install jsx", bundle);
-	}
-}
+		class JsxAppRoutes extends Controller { }
 
-export const jsxCompiler = (App: Constructor<View>, basePath: string) => new JsxPlugin({
-	App,
-	basePath
-});
-function hasClientDecorator(node: ts.ClassDeclaration): boolean {
-	const decorators = ts.canHaveDecorators(node)
-		? ts.getDecorators(node)
-		: undefined;
+		for (const [_, value] of compiler.compiledDependencies) {
+			value.compileWithImports(compiler.compiledDependencies);
 
-	if (!decorators) return false;
-
-	for (const d of decorators) {
-		const expr = d.expression;
-
-		if (ts.isCallExpression(expr)) {
-			if (ts.isIdentifier(expr.expression) && expr.expression.text === "client") {
-				return true;
-			}
+			server.router.registerRoute({
+				Controller: JsxAppRoutes,
+				key: "",
+				middleware: [],
+				paramInjectors: [],
+				method: "GET",
+				fn: () => new JsRes(value.compiledSource),
+				path: value.path
+			});
 		}
 
-		if (ts.isIdentifier(expr) && expr.text === "client") {
-			return true;
-		}
-	}
+		const routePath = this.config.basePath === "/" ? "/*" : `${this.config.basePath}/*`;
 
-	return false;
-}
-
-const clientFilterTransformer: ts.TransformerFactory<ts.SourceFile> = (context: ts.TransformationContext) => {
-	const visitor: ts.Visitor = (node) => {
-
-		if (ts.isClassDeclaration(node)) {
-			if (!hasClientDecorator(node)) {
-				return undefined;
-			}
-		}
-
-		return ts.visitEachChild(node, visitor, context);
-	};
-
-	return (sourceFile: ts.SourceFile) => {
-		const transformed = ts.visitNode(sourceFile, visitor) as ts.SourceFile;
-
-		//const printer = ts.createPrinter();
-		//const code = printer.printFile(transformed);
-
-		//console.log(code);
-
-		return transformed;
-	};
-};
-
-@requires(HttpPlugin, { host: "localhost", port: 3001 })
-export class JsxPlugin2 extends Plugin<{ appImportPath: string, basePath: string }> {
-	override install(app: App): void {
-		const server = app.getTransport(HttpServer);
-
-		if (!server)
-			return console.warn("Expected to have an http server!");
-
-		const entryPath = path.resolve(app.srcDir, this.config.appImportPath);
-		//console.log(entryPath);
-
-		const program = ts.createProgram({
-			rootNames: [entryPath],
-			options: {
-				"module": ts.ModuleKind.ESNext,
-				"target": ts.ScriptTarget.ESNext,
-				"outDir": "./dist",
-				"rootDir": "./src",
-				"moduleResolution": ts.ModuleResolutionKind.NodeNext,
-				"experimentalDecorators": true,
-				"emitDecoratorMetadata": true,
-				"strict": true,
-				"lib": [
-					"ESNext",
-					"DOM"
-				],
-				"types": [
-					"node"
-				],
-				"skipLibCheck": true,
-				"verbatimModuleSyntax": true,
-				"moduleDetection": ts.ModuleDetectionKind.Force,
-				"noUnusedLocals": true,
-				"noUnusedParameters": true,
-				"erasableSyntaxOnly": true,
-				"noFallthroughCasesInSwitch": true,
-				"noUncheckedSideEffectImports": true,
-				"jsx": ts.JsxEmit.React,
-				"jsxImportSource": "@ion/jsx"
-			}
+		server.router.registerRoute({
+			Controller: JsxAppRoutes,
+			key: "",
+			middleware: [],
+			paramInjectors: [],
+			method: "GET",
+			fn: async () => {
+				return new AppRes({ App: this.config.App, compiledDependencies: compiler.compiledDependencies });
+			},
+			path: routePath
 		});
-
-		let output: string = "";
-
-		program.emit(
-			undefined,
-			(_fileName, data) => { output = data; },
-			undefined,
-			false,
-			{ before: [clientFilterTransformer] }
-		);
-
-		console.log({ output });
 	}
 }
-export const jsxCompiler2 = (appImportPath: string, basePath: string = "/") => new JsxPlugin2({
-	appImportPath,
+
+export const jsxCompiler = (App: ViewType<View>, basePath: string) => new JsxPlugin({
+	App,
 	basePath
 });

@@ -26,7 +26,7 @@
 		"declaration": true,
 		"declarationDir": "./types",
 		"jsx": "react-jsx",
-		"jsxImportSource": "kernel",
+		"jsxImportSource": "../jsx.js",
 	},
 	"include": [
 		"src/**/*",

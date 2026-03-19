@@ -1,24 +1,35 @@
-import { inject, List, View } from "@ion/jsx";
+import { client, controller, List, state, View } from "@ion/jsx";
 import { UsersApi } from "../../controllers/api/users.js";
 import type { User } from "../../models/user.js";
 
-export class UsersPage extends View {
-	@inject(UsersApi)
-	public readonly usersApi!: UsersApi;
-
-	override async load() {
-		return this.usersApi.getUsers();
-	}
-
-	public override render() {
+@client()
+export class UserRow extends View<User> {
+	override render({ id, username, email }: User) {
 		return (
-			<List items={this.state} view={UserRow} />
+			<div>
+				{id?.value || "null"} - {username} - {email}
+			</div>
 		);
 	}
 }
 
-export const UserRow = ({ id, username, email }: User) => (
-	<div>
-		{id?.value || "null"} - {username} - {email}
-	</div>
-);
+@client({
+	include: [UserRow, UsersApi]
+})
+export class UsersPage extends View {
+	@controller
+	private readonly usersApi!: UsersApi;
+
+	@state
+	private users: User[] = [];
+
+	public override async load() {
+		this.users = await this.usersApi.getUsers();
+	}
+
+	public override render() {
+		return (
+			<List items={this.users} view={UserRow} />
+		);
+	}
+}

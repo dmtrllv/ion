@@ -51,4 +51,6 @@ export type Handler = {
 	readonly paramInjectors: ParamInjector[];
 };
 
-type ParamInjector = undefined | ((req: ServerReq, params: Record<string, string>) => unknown);
+export type ParamInjector = undefined | (((req: ServerReq, params: Record<string, string>) => unknown) & {
+	type: { param: string } | "body",
+});

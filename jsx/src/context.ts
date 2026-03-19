@@ -1,7 +1,7 @@
-export class Context {
+import { View } from "./view.js";
 
-}
-
-export const ctx = <T extends typeof Context>(_type: T): PropertyDecorator => () => {
-
+export abstract class Context<P extends {} = {}> extends View<P> {
+	public render(props: any) {
+		return props.children || [];
+	}
 }

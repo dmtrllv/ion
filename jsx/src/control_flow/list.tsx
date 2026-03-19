@@ -1,8 +1,8 @@
-import { View } from "../view.js";
+import { View, type ViewType } from "../view.js";
 
 export type ListProps<T extends {}> = {
 	readonly items: T[];
-	readonly view: View<T> | JSX.FC<T>;
+	readonly view: ViewType<View<T>>;
 };
 
 export class List<T extends {}> extends View<ListProps<T>> {

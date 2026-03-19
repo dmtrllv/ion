@@ -1,9 +1,9 @@
-import { Transport } from "@ion/core";
+import { Transport, Controller } from "@ion/core";
 import * as http from "node:http";
 import * as https from "node:https";
-import { Router } from "./router.js";
+import { isApi, Router } from "./router.js";
 import type { HttpMethod } from "./route.js";
-import { Response } from "./response.js";
+import { json, Response } from "./response.js";
 
 type NodeServer = http.Server<typeof http.IncomingMessage, typeof http.ServerResponse>;
 
@@ -59,28 +59,30 @@ export class HttpServer extends Transport {
 		if (!req.url)
 			return res.end();
 
-		const matchedRoute = this.router.getRoute(req.url!);
-		
-		if(!matchedRoute)
-			return res.end();
-		const { route, params } = matchedRoute;
-		const handler = route.handlers[req.method as HttpMethod];
-		
-		if (!handler)
+		const [path, _query = ""] = req.url.split("?");
+
+		const matchedRoute = this.router.getHandler(path!, req.method! as HttpMethod);
+
+		if (!matchedRoute)
 			return res.end();
 
-		const controller = new handler.Controller();
-		const args = await Promise.all(handler.paramInjectors.map(injector => {
+		const { params, handler } = matchedRoute;
+
+		const controller = Controller.create(handler.Controller);
+
+		const args = await Promise.all(handler.paramInjectors.map((injector: any) => {
 			// Todo this should be checked in the method decorator
-			if(!injector) {
+			if (!injector) {
 				console.error("missing injector?");
 				return undefined;
 			}
 			return injector(req, params);
 		}));
-	
-		const response = await handler.fn.call(controller, ...args) as Response<any>;
-		if(response instanceof Response) {
+
+		const response = await handler.handler.call(controller, ...args) as Response<any>;
+		if (isApi(handler.handler)) {
+			await json(response).write(req, res);
+		} else if (response instanceof Response) {
 			await response.write(req, res);
 		} else {
 			res.write(JSON.stringify(response));

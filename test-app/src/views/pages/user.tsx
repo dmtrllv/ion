@@ -1,29 +1,36 @@
-import { ctx, inject, RouteContext, View } from "@ion/jsx";
+import { client, controller, ctx, Route, state, View } from "@ion/jsx";
 import { UsersApi } from "../../controllers/api/users.js";
 import type { User } from "../../models/user.js";
 
+@client({
+	include: [UsersApi]
+})
 export class UserPage extends View {
-	@inject(UsersApi)
-	public readonly usersApi!: UsersApi;
+	@controller
+	private readonly usersApi!: UsersApi;
 
-	@ctx(RouteContext)
-	public routeContext!: RouteContext;
+	@ctx
+	private readonly route!: Route;
 
-	override async load(): Promise<{ user: User | null }> {
-		const id = this.routeContext.getParam("id");
-		if (id !== null)
-			return { user: await this.usersApi.getUser(Number(id)) };
-		return { user: null };
+	@state
+	private user: User | null = null;
+
+	override async load() {
+		const id = this.route.getParam("id");
+		if (id !== null) {
+			const data = await this.usersApi.getUser(Number(id));
+			this.user = data;
+		}
 	}
 
 	public override render() {
-		if (this.state.user === null) {
+		if (this.user === null) {
 			return (
 				<h1>No user found!</h1>
 			);
 		}
 
-		const { username, email } = this.state.user;
+		const { username, email } = this.user;
 
 		return (
 			<>

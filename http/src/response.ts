@@ -38,7 +38,6 @@ export class HtmlRes extends Response<string> {
 	}
 }
 
-
 export class TextRes extends Response<string> {
 	public write(_req: ServerReq, res: ServerRes) {
 		return new Promise<void>((resolve, reject) => {

@@ -2,7 +2,7 @@ import { Route, Redirect, View, client } from "@ion/jsx";
 import { HomePage, UserPage, UsersPage } from "./pages/index.js";
 
 @client({
-	imports: ["./pages/index.js"]
+	include: [HomePage, UserPage, UsersPage]
 })
 export class App extends View {
 	public override render() {

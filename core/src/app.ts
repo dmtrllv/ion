@@ -6,6 +6,7 @@ import { sortExecOrder, type Plugin, type RequiredPlugin } from "./plugin.js";
 import { Registry } from "./registry.js";
 import type { Transport } from "./transport.js";
 import { loadModules } from "./bootstrap.js";
+import { Service } from "./service.js";
 
 type PluginsArray = [Plugin, ...Plugin[]];
 
@@ -13,6 +14,7 @@ export class App {
 	protected readonly transports: Registry<Transport> = new Registry();
 
 	protected readonly plugins: Set<Plugin> = new Set();
+
 	private installedPlugins: readonly Plugin[] = [];
 
 	public readonly distDir: string;
@@ -52,6 +54,7 @@ export class App {
 				return new Error(message);
 			});
 		}
+
 		this.plugins.forEach(plugin => {
 			const ctor = plugin.constructor as typeof Plugin;
 			ctor.requiredPlugins?.forEach(({ type, config }: RequiredPlugin) => {
@@ -60,14 +63,30 @@ export class App {
 				}
 			});
 		});
+
 		const plugins = sortExecOrder(this.plugins);
 		const result = await plugins.andThen(this.installPlugins);
-		return result.mapErr();
+		return result.andThen(this.installServices).mapErr();
+	}
+
+	private installServices(): Result<any, Error> {
+		const services = Service.all();
+		for(const service of services) {
+			const Class = service.constructor as typeof Service;
+			const injectedServices = Class.injectedServices || {}
+			for(const k in injectedServices) {
+				const ServiceType = injectedServices[k]!;
+				const injectedService = Service.getService(ServiceType)!;
+				Object.assign(service, { k: injectedService });
+			}
+		}
+		
+		return Ok();
 	}
 
 	protected getPlugin<T extends Plugin<any>>(type: Constructor<T>): T | null {
-		for(const plugin of this.plugins.values()) {
-			if(plugin.constructor === type) {
+		for (const plugin of this.plugins.values()) {
+			if (plugin.constructor === type) {
 				return plugin as T;
 			}
 		}
@@ -90,7 +109,6 @@ export class App {
 
 		return Ok();
 	}
-
 
 	public async stop(): Promise<void> {
 		const transports = this.transports.all().toReversed();

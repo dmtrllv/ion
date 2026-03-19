@@ -27,6 +27,6 @@ type IsRepository<T> = T extends Repository<infer U> ? IsExact<T, Repository<U>>
 
 type RepoArgs<T, K extends keyof T> = IsRepository<T[K]> extends true ? [new (...args: any[]) => RepoType<T[K]>] : [];
 
-export const repo = <T, K extends keyof T>(..._args: RepoArgs<T, K>) => (_target: T, _key: K) => {
-
+export const repository = (_target: Object, _key: string | number | symbol) => {
+	
 };

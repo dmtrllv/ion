@@ -3,8 +3,8 @@ import { http, type HttpOptions } from "@ion/http";
 import { ws } from "@ion/ws";
 import { pg, type PgOptions } from "@ion/pg-db";
 import { env } from "./env.js";
-import { jsxCompiler, jsxCompiler2 } from "@ion/jsx";
-import { App as AppView } from "./views/app.js";
+import { jsxCompiler } from "@ion/jsx";
+import { App as AppEntry } from "./views/app.js";
 
 const app = new App();
 
@@ -26,7 +26,7 @@ app.use(
 	http(httpOptions),
 	pg(pgOptions),
 	// TODO: this should generate http routes and client bundles (jsx, html, css etc)
-	jsxCompiler2("./views/app.tsx", "/"),
+	jsxCompiler(AppEntry, "/"),
 );
 
 app.start().then(result => {

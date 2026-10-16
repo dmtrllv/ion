@@ -1,3 +1,4 @@
+
 import * as ts from "typescript";
 import { Compiler } from "../compiler.js";
 import { MacroDeclaration, MacroType, Module } from "../module.js";
@@ -7,34 +8,63 @@ export class ModuleResolver implements Pass<ModuleMap> {
 	public async run(compiler: Compiler): Promise<ModuleMap> {
 		const typeChecker = compiler.typeChecker;
 		const compilerOptions = compiler.options;
-
 		const modules: ModuleMap = {};
 
 		for (const path of compiler.sourcePaths) {
 			const source = compiler.getSource(path);
 			const relativePath = compiler.relativePath(path);
-			modules[path] = this.resolve(typeChecker, compilerOptions, relativePath, source);
+
+			modules[path] = this.resolve(
+				typeChecker,
+				compilerOptions,
+				relativePath,
+				source
+			);
 		}
 
-		for (const path in modules) {
-			const module = modules[path]!;
-			module.imports.forEach(i => {
-				if (i.path !== "@ion/comptime") {
-					const dep = modules[i.absolutePath];
-					if (dep) {
-						i.module = dep;
-					} else {
-						console.log("Could not find module at", i.absolutePath);
-					}
-				}
-			});
-		}
+		this.linkModules(modules, compilerOptions);
 
 		return modules;
 	}
 
-	public resolve(typeChecker: ts.TypeChecker, compilerOptions: ts.CompilerOptions, relativePath: string, source: ts.SourceFile): Module {
-		const { imports, namespaces, macroNamespaces } = this.resolveImports(source);
+	private linkModules(
+		modules: ModuleMap,
+		compilerOptions: ts.CompilerOptions
+	): void {
+		for (const module of Object.values(modules)) {
+			for (const imp of module.imports) {
+				if (imp.path === "@ion/comptime") {
+					continue;
+				}
+
+				imp.module = modules[imp.absolutePath];
+			}
+
+			for (const reExport of module.reExports) {
+				const result = ts.resolveModuleName(
+					reExport.path,
+					module.sourceFile.fileName,
+					compilerOptions,
+					ts.sys
+				);
+
+				const absolutePath = result.resolvedModule?.resolvedFileName;
+
+				if (absolutePath) {
+					reExport.module = modules[absolutePath];
+				}
+			}
+		}
+	}
+
+	public resolve(
+		typeChecker: ts.TypeChecker,
+		compilerOptions: ts.CompilerOptions,
+		relativePath: string,
+		source: ts.SourceFile
+	): Module {
+		const { imports, namespaces, macroNamespaces } =
+			this.resolveImports(source);
 
 		const macroDeclarations: MacroDeclaration[] = [];
 		const removeStatements: ts.Node[] = [];
@@ -76,20 +106,34 @@ export class ModuleResolver implements Pass<ModuleMap> {
 			}
 		}
 
-		return new Module(typeChecker, relativePath, source, removeStatements, macroDeclarations, compilerOptions);
+		return new Module(
+			typeChecker,
+			relativePath,
+			source,
+			removeStatements,
+			macroDeclarations,
+			compilerOptions
+		);
 	}
 
-	private shouldRemoveExpression(expression: ts.Expression | undefined): boolean {
-		if (!expression)
+	private shouldRemoveExpression(
+		expression: ts.Expression | undefined
+	): boolean {
+		if (!expression) {
 			return false;
+		}
 
 		let shouldRemove = false;
 
 		const visit = (node: ts.Node): void => {
-			if (shouldRemove)
+			if (shouldRemove) {
 				return;
+			}
 
-			if (ts.isCallExpression(node) || ts.isPropertyAccessExpression(node)) {
+			if (
+				ts.isCallExpression(node) ||
+				ts.isPropertyAccessExpression(node)
+			) {
 				shouldRemove = true;
 				return;
 			}
@@ -117,10 +161,14 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		let shouldRemove = false;
 
 		const visit = (node: ts.Node): void => {
-			if (shouldRemove)
+			if (shouldRemove) {
 				return;
+			}
 
-			if (ts.isCallExpression(node) || ts.isPropertyAccessExpression(node)) {
+			if (
+				ts.isCallExpression(node) ||
+				ts.isPropertyAccessExpression(node)
+			) {
 				shouldRemove = true;
 				return;
 			}
@@ -151,8 +199,10 @@ export class ModuleResolver implements Pass<ModuleMap> {
 			}
 
 			const clause = statement.importClause;
-			if (!clause)
+
+			if (!clause) {
 				continue;
+			}
 
 			const bindings = clause.namedBindings;
 
@@ -160,19 +210,22 @@ export class ModuleResolver implements Pass<ModuleMap> {
 				imports.set(clause.name.text, "comptime");
 			}
 
-			if (!bindings)
+			if (!bindings) {
 				continue;
+			}
 
 			if (ts.isNamespaceImport(bindings)) {
 				namespaces.add(bindings.name.text);
 				continue;
 			}
 
-			if (!ts.isNamedImports(bindings))
+			if (!ts.isNamedImports(bindings)) {
 				continue;
+			}
 
 			for (const element of bindings.elements) {
-				const importedName = element.propertyName?.text ?? element.name.text;
+				const importedName =
+					element.propertyName?.text ?? element.name.text;
 
 				switch (importedName) {
 					case "comptime":
@@ -207,17 +260,26 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		namespaces: Set<string>,
 		macroNamespaces: Set<string>
 	): MacroType | undefined {
-		if (ts.isIdentifier(expression))
+		if (ts.isIdentifier(expression)) {
 			return imports.get(expression.text);
+		}
 
-		if (!ts.isPropertyAccessExpression(expression) || !ts.isIdentifier(expression.expression))
+		if (
+			!ts.isPropertyAccessExpression(expression) ||
+			!ts.isIdentifier(expression.expression)
+		) {
 			return undefined;
+		}
 
 		const namespace = expression.expression.text;
 		const property = expression.name.text;
 
-		if (!namespaces.has(namespace) && !macroNamespaces.has(namespace))
+		if (
+			!namespaces.has(namespace) &&
+			!macroNamespaces.has(namespace)
+		) {
 			return undefined;
+		}
 
 		switch (property) {
 			case "comptime":

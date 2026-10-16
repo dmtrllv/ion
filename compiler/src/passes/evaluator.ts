@@ -7,9 +7,9 @@ export class ComptimeEvaluator implements Pass<any, [TransformedModule[]]> {
 		await Promise.all(transformedModules.map(module => this.evaluate(compiler, module, transformedModules)))
 	}
 
-	private async evaluate(compiler: Compiler, transformedModule: TransformedModule, transformedModules: TransformedModule[]) {
+	private async evaluate(_compiler: Compiler, _transformedModule: TransformedModule, _transformedModules: TransformedModule[]) {
 		// find comptime calls
-		const comptimeModulePaths = transformedModules.map(i => i.original.usesComptime ? i.path : null).filter(s =>!!s);
+		//const comptimeModulePaths = transformedModules.map(i => i.original.usesComptime ? i.path : null).filter(s =>!!s);
 		
 		//transformedModule.original.imports.map(i => {
 		//	//if(comptimeModulePaths)

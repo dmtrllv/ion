@@ -1,4 +1,3 @@
-
 import * as ts from "typescript";
 import { pathToFileURL } from "node:url";
 import { Compiler } from "../compiler.js";
@@ -12,7 +11,16 @@ export type ComptimeCall = {
 	readonly node: ts.CallExpression;
 };
 
-export class ComptimeEvaluator implements Pass<void, [ModuleMap, TransformedModule[]]> {
+type ComptimeFn = {
+	readonly __ion_comptime_fn__?: (
+		args: readonly ts.Expression[],
+	) => unknown;
+};
+
+type RuntimeModule = Record<string, unknown>;
+
+export class ComptimeEvaluator
+	implements Pass<void, [ModuleMap, TransformedModule[]]> {
 	public readonly results = new Map<ts.CallExpression, unknown>();
 
 	public async run(
@@ -20,35 +28,79 @@ export class ComptimeEvaluator implements Pass<void, [ModuleMap, TransformedModu
 		modules: ModuleMap,
 		transformedModules: TransformedModule[],
 	): Promise<void> {
-		const runtimeModules = new Map<Module, Record<string, unknown>>();
+		const runtimeModules = await this.loadRuntimeModules(
+			transformedModules,
+		);
 
-		for (const transformed of transformedModules) {
-			const runtimeModule = await import(
-				pathToFileURL(transformed.path).href
-			);
-
-			runtimeModules.set(transformed.module, runtimeModule);
-		}
+		this.validateComptimeValues(modules, runtimeModules);
 
 		for (const transformed of transformedModules) {
 			await this.evaluate(
 				compiler,
-				transformed,
+				transformed.module,
 				modules,
 				runtimeModules,
 			);
 		}
 	}
 
+	private async loadRuntimeModules(
+		transformedModules: TransformedModule[],
+	): Promise<Map<Module, RuntimeModule>> {
+		const runtimeModules = new Map<Module, RuntimeModule>();
+
+		for (const transformed of transformedModules) {
+			const runtimeModule = (await import(
+				pathToFileURL(transformed.path).href
+			)) as RuntimeModule;
+
+			runtimeModules.set(transformed.module, runtimeModule);
+		}
+
+		return runtimeModules;
+	}
+
+	private validateComptimeValues(
+		modules: ModuleMap,
+		runtimeModules: Map<Module, RuntimeModule>,
+	): void {
+		for (const module of Object.values(modules)) {
+			const runtimeModule = runtimeModules.get(module);
+
+			if (!runtimeModule) {
+				continue;
+			}
+
+			for (const declaration of module.macroDeclarations) {
+				if (declaration.type !== "comptime") {
+					continue;
+				}
+
+				const name = declaration.statement.name;
+
+				if (!ts.isIdentifier(name)) {
+					continue;
+				}
+
+				const value = runtimeModule[name.text];
+
+				if (this.isTypeScriptNode(value)) {
+					throw new Error(
+						`Comptime value "${name.text}" in "${module.path}" returned a TypeScript node. ` +
+						"`comptime` must return a regular JavaScript value.",
+					);
+				}
+			}
+		}
+	}
+
 	private async evaluate(
 		compiler: Compiler,
-		transformedModule: TransformedModule,
+		module: Module,
 		modules: ModuleMap,
-		runtimeModules: Map<Module, Record<string, unknown>>,
+		runtimeModules: Map<Module, RuntimeModule>,
 	): Promise<void> {
-		const calls = this.findCallSites(transformedModule.module);
-
-		for (const call of calls) {
+		for (const call of this.findCallSites(module)) {
 			const symbol = this.resolveCallSymbol(compiler, call);
 
 			if (!symbol) {
@@ -81,34 +133,38 @@ export class ComptimeEvaluator implements Pass<void, [ModuleMap, TransformedModu
 
 			if (!runtimeModule) {
 				throw new Error(
-					`No generated runtime module for ${declarationModule.path}`,
+					`No generated runtime module for "${declarationModule.path}".`,
 				);
 			}
 
 			const exported = runtimeModule[name.text];
 
-			if (typeof exported !== "function") {
-				console.log(exported);
-				throw new Error(
-					`Comptime export "${name.text}" in "${declarationModule.path}" is not callable`,
-				);
+			if (!this.isComptimeFn(exported)) {
+				continue;
 			}
 
-			if (call.node.arguments.length !== 0) {
+			const result: any = await exported.__ion_comptime_fn__!(
+				call.node.arguments,
+			);
+
+			if (!ts.isExpression(result)) {
 				throw new Error(
-					`Comptime call arguments are not implemented yet: ${call.node.getText(call.module.sourceFile)}`,
+					`Comptime function "${name.text}" in "${declarationModule.path}" ` +
+					"must return a TypeScript expression.",
 				);
 			}
-
-			const result = await exported();
 
 			this.results.set(call.node, result);
 
 			console.log("Comptime evaluated:", {
-				module: call.module.path,
-				expression: call.node.getText(call.module.sourceFile),
+				module: module.path,
+				expression: call.node.getText(module.sourceFile),
 				declaration: name.text,
-				result,
+				result: ts.createPrinter().printNode(
+					ts.EmitHint.Expression,
+					result,
+					module.sourceFile,
+				),
 			});
 		}
 	}
@@ -125,6 +181,7 @@ export class ComptimeEvaluator implements Pass<void, [ModuleMap, TransformedModu
 		};
 
 		visit(module.sourceFile);
+
 		return calls;
 	}
 
@@ -160,5 +217,22 @@ export class ComptimeEvaluator implements Pass<void, [ModuleMap, TransformedModu
 		}
 
 		return undefined;
+	}
+
+	private isComptimeFn(value: unknown): value is ComptimeFn & Function {
+		return (
+			typeof value === "function" &&
+			typeof (value as ComptimeFn).__ion_comptime_fn__ === "function"
+		);
+	}
+
+	private isTypeScriptNode(value: unknown): value is ts.Node {
+		return (
+			typeof value === "object" &&
+			value !== null &&
+			"kind" in value &&
+			typeof (value as ts.Node).kind === "number" &&
+			typeof (value as ts.Node).getSourceFile === "function"
+		);
 	}
 }

@@ -1,26 +1,14 @@
 
 import * as ts from "typescript";
 import { Compiler } from "../compiler.js";
-import {
-	Export,
-	Import,
-	MacroDeclaration,
-	MacroType,
-	Module,
-} from "../module.js";
+import { Export, Import, MacroDeclaration, MacroType, Module } from "../module.js";
 import { Pass } from "./pass.js";
 
 export class ModuleResolver implements Pass<ModuleMap> {
-
 	public async run(compiler: Compiler): Promise<ModuleMap> {
-		const sourceFiles = compiler.sourcePaths.map((path) =>
-			compiler.getSource(path),
-		);
+		const sourceFiles = compiler.sourcePaths.map((path) => compiler.getSource(path),);
 
-		const entryPoints = this.resolveImports(
-			compiler.typeChecker,
-			sourceFiles,
-		);
+		const entryPoints = this.resolveImports(compiler.typeChecker, sourceFiles,);
 
 		const modules: ModuleMap = {};
 
@@ -40,10 +28,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 	}
 
 
-	private linkModules(
-		modules: ModuleMap,
-		compilerOptions: ts.CompilerOptions,
-	): void {
+	private linkModules(modules: ModuleMap, compilerOptions: ts.CompilerOptions): void {
 		const modulesByFile = new Map<string, Module>();
 
 		for (const [path, module] of Object.entries(modules)) {
@@ -51,7 +36,6 @@ export class ModuleResolver implements Pass<ModuleMap> {
 			modulesByFile.set(module.fullPath, module);
 		}
 
-		// Link imports and re-exports to modules in this compilation.
 		for (const module of Object.values(modules)) {
 			for (const imported of module.imports) {
 				if (imported.path === "@ion/comptime") {
@@ -77,7 +61,6 @@ export class ModuleResolver implements Pass<ModuleMap> {
 			}
 		}
 
-		// Link each export to the module containing its original declaration.
 		for (const module of Object.values(modules)) {
 			for (const exported of module.exports) {
 				exported.targetModule = this.findDeclarationModule(
@@ -88,14 +71,9 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		}
 	}
 
-	private findDeclarationModule(
-		symbol: ts.Symbol,
-		modulesByFile: Map<string, Module>,
-	): Module | undefined {
+	private findDeclarationModule(symbol: ts.Symbol, modulesByFile: Map<string, Module>): Module | undefined {
 		for (const declaration of symbol.declarations ?? []) {
-			const module = modulesByFile.get(
-				declaration.getSourceFile().fileName,
-			);
+			const module = modulesByFile.get(declaration.getSourceFile().fileName,);
 
 			if (module) {
 				return module;
@@ -106,41 +84,18 @@ export class ModuleResolver implements Pass<ModuleMap> {
 	}
 
 	public isComptimeExport(exported: Export): boolean {
-		return (
-			exported.targetModule?.getComptimeDeclaration(exported.target) !==
-			undefined
-		);
+		return exported.targetModule?.getComptimeDeclaration(exported.target) !== undefined;
 	}
 
-	public resolve(
-		typeChecker: ts.TypeChecker,
-		compilerOptions: ts.CompilerOptions,
-		relativePath: string,
-		source: ts.SourceFile,
-		entryPoints: Map<ts.Symbol, MacroType>,
-	): Module {
+	public resolve(typeChecker: ts.TypeChecker, compilerOptions: ts.CompilerOptions, relativePath: string, source: ts.SourceFile, entryPoints: Map<ts.Symbol, MacroType>,): Module {
 		const macroDeclarations: MacroDeclaration[] = [];
 		const removeStatements: ts.Node[] = [];
 
 		for (const statement of source.statements) {
 			if (ts.isVariableStatement(statement)) {
 				for (const declaration of statement.declarationList.declarations) {
-					if (
-						ts.isIdentifier(declaration.name) &&
-						declaration.initializer &&
-						ts.isCallExpression(declaration.initializer)
-					) {
-						const type = this.resolveMacroType(
-							declaration.initializer.expression,
-							typeChecker,
-							entryPoints,
-						);
-
-						console.log({
-							file: relativePath,
-							expression: declaration.initializer.expression.getText(source),
-							type,
-						});
+					if (ts.isIdentifier(declaration.name) && declaration.initializer && ts.isCallExpression(declaration.initializer)) {
+						const type = this.resolveMacroType(declaration.initializer.expression, typeChecker, entryPoints);
 
 						if (type) {
 							macroDeclarations.push({
@@ -165,21 +120,11 @@ export class ModuleResolver implements Pass<ModuleMap> {
 			}
 		}
 
-		return new Module(
-			typeChecker,
-			relativePath,
-			source,
-			removeStatements,
-			macroDeclarations,
-			compilerOptions,
-		);
+		return new Module(typeChecker, relativePath, source, removeStatements, macroDeclarations, compilerOptions,);
 	}
 
 
-	private resolveImports(
-		typeChecker: ts.TypeChecker,
-		sourceFiles: readonly ts.SourceFile[],
-	): Map<ts.Symbol, MacroType> {
+	private resolveImports(typeChecker: ts.TypeChecker, sourceFiles: readonly ts.SourceFile[],): Map<ts.Symbol, MacroType> {
 		const entryPoints = new Map<ts.Symbol, MacroType>();
 
 		const resolveAlias = (symbol: ts.Symbol): ts.Symbol => {
@@ -195,17 +140,13 @@ export class ModuleResolver implements Pass<ModuleMap> {
 				if (exported.name === "comptime") {
 					entryPoints.set(symbol, "comptime");
 
-					const declaration =
-						symbol.valueDeclaration ?? symbol.declarations?.[0];
+					const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
 
 					if (!declaration) {
 						continue;
 					}
 
-					const comptimeType = typeChecker.getTypeOfSymbolAtLocation(
-						symbol,
-						declaration,
-					);
+					const comptimeType = typeChecker.getTypeOfSymbolAtLocation(symbol, declaration);
 
 					const fn = typeChecker.getPropertyOfType(comptimeType, "fn");
 
@@ -215,8 +156,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 				}
 
 				if (exported.name === "macro") {
-					const declaration =
-						symbol.valueDeclaration ?? symbol.declarations?.[0];
+					const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
 
 					if (!declaration) {
 						continue;
@@ -227,14 +167,13 @@ export class ModuleResolver implements Pass<ModuleMap> {
 						declaration,
 					);
 
-					for (const [name, macroTypeName] of [
+					const options = [
 						["generate", "macro.generate"],
 						["attribute", "macro.attribute"],
-					] as const) {
-						const property = typeChecker.getPropertyOfType(
-							macroType,
-							name,
-						);
+					] as const;
+
+					for (const [name, macroTypeName] of options) {
+						const property = typeChecker.getPropertyOfType(macroType, name,);
 
 						if (property) {
 							entryPoints.set(
@@ -249,11 +188,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 
 		for (const sourceFile of sourceFiles) {
 			for (const statement of sourceFile.statements) {
-				if (
-					!ts.isImportDeclaration(statement) ||
-					!ts.isStringLiteral(statement.moduleSpecifier) ||
-					statement.moduleSpecifier.text !== "@ion/comptime"
-				) {
+				if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.moduleSpecifier.text !== "@ion/comptime") {
 					continue;
 				}
 
@@ -270,10 +205,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		return entryPoints;
 	}
 
-	private resolveAlias(
-		typeChecker: ts.TypeChecker,
-		symbol: ts.Symbol,
-	): ts.Symbol {
+	private resolveAlias(typeChecker: ts.TypeChecker, symbol: ts.Symbol): ts.Symbol {
 		let current = symbol;
 
 		while ((current.flags & ts.SymbolFlags.Alias) !== 0) {
@@ -289,11 +221,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		return current;
 	}
 
-	private resolveMacroType(
-		expression: ts.Expression,
-		typeChecker: ts.TypeChecker,
-		entryPoints: Map<ts.Symbol, MacroType>,
-	): MacroType | undefined {
+	private resolveMacroType(expression: ts.Expression, typeChecker: ts.TypeChecker, entryPoints: Map<ts.Symbol, MacroType>): MacroType | undefined {
 		const symbol = typeChecker.getSymbolAtLocation(expression);
 
 		if (!symbol) {
@@ -303,9 +231,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		return entryPoints.get(this.resolveAlias(typeChecker, symbol));
 	}
 
-	private shouldRemoveExpression(
-		expression: ts.Expression | undefined,
-	): boolean {
+	private shouldRemoveExpression(expression: ts.Expression | undefined): boolean {
 		if (!expression) {
 			return false;
 		}
@@ -317,10 +243,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 				return;
 			}
 
-			if (
-				ts.isCallExpression(node) ||
-				ts.isPropertyAccessExpression(node)
-			) {
+			if (ts.isCallExpression(node) || ts.isPropertyAccessExpression(node)) {
 				shouldRemove = true;
 				return;
 			}
@@ -353,10 +276,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 				return;
 			}
 
-			if (
-				ts.isCallExpression(node) ||
-				ts.isPropertyAccessExpression(node)
-			) {
+			if (ts.isCallExpression(node) || ts.isPropertyAccessExpression(node)) {
 				shouldRemove = true;
 				return;
 			}
@@ -369,10 +289,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		return shouldRemove;
 	}
 
-	public getComptimeImport(
-		imported: Import,
-		importedName: string,
-	): MacroDeclaration | undefined {
+	public getComptimeImport(imported: Import, importedName: string): MacroDeclaration | undefined {
 		return imported.module?.getComptimeImport(importedName);
 	}
 }

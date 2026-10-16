@@ -12,16 +12,13 @@ export type ComptimeCall = {
 };
 
 type ComptimeFn = {
-	readonly __ion_comptime_fn__?: (
-		args: readonly ts.Expression[],
-	) => unknown;
+	readonly __ion_comptime_fn__?: (args: readonly ts.Expression[]) => unknown;
 };
 
 type RuntimeModule = Record<string, unknown>;
 
 export class ComptimeEvaluator
 	implements Pass<Map<ts.CallExpression, ts.Expression>, [ModuleMap, TransformedModule[]]> {
-	//public readonly results = new Map<ts.CallExpression, ts.Expression>();
 
 	public async run(
 		compiler: Compiler,
@@ -48,9 +45,7 @@ export class ComptimeEvaluator
 		return results;
 	}
 
-	private async loadRuntimeModules(
-		transformedModules: TransformedModule[],
-	): Promise<Map<Module, RuntimeModule>> {
+	private async loadRuntimeModules(transformedModules: TransformedModule[]): Promise<Map<Module, RuntimeModule>> {
 		const runtimeModules = new Map<Module, RuntimeModule>();
 
 		for (const transformed of transformedModules) {
@@ -64,10 +59,7 @@ export class ComptimeEvaluator
 		return runtimeModules;
 	}
 
-	private validateComptimeValues(
-		modules: ModuleMap,
-		runtimeModules: Map<Module, RuntimeModule>,
-	): void {
+	private validateComptimeValues(modules: ModuleMap, runtimeModules: Map<Module, RuntimeModule>): void {
 		for (const module of Object.values(modules)) {
 			const runtimeModule = runtimeModules.get(module);
 
@@ -89,22 +81,13 @@ export class ComptimeEvaluator
 				const value = runtimeModule[name.text];
 
 				if (this.isTypeScriptNode(value)) {
-					throw new Error(
-						`Comptime value "${name.text}" in "${module.path}" returned a TypeScript node. ` +
-						"`comptime` must return a regular JavaScript value.",
-					);
+					throw new Error(`Comptime value "${name.text}" in "${module.path}" returned a TypeScript node. comptime must return a regular JavaScript value.`);
 				}
 			}
 		}
 	}
 
-	private async evaluate(
-		compiler: Compiler,
-		module: Module,
-		modules: ModuleMap,
-		runtimeModules: Map<Module, RuntimeModule>,
-		results: Map<ts.CallExpression, ts.Expression>
-	): Promise<void> {
+	private async evaluate(compiler: Compiler, module: Module, modules: ModuleMap, runtimeModules: Map<Module, RuntimeModule>, results: Map<ts.CallExpression, ts.Expression>): Promise<void> {
 		for (const call of this.findCallSites(module)) {
 			const symbol = this.resolveCallSymbol(compiler, call);
 
@@ -112,17 +95,13 @@ export class ComptimeEvaluator
 				continue;
 			}
 
-			const declarationModule = this.findDeclarationModule(
-				symbol,
-				modules,
-			);
+			const declarationModule = this.findDeclarationModule(symbol, modules);
 
 			if (!declarationModule) {
 				continue;
 			}
 
-			const declaration =
-				declarationModule.getComptimeDeclaration(symbol);
+			const declaration = declarationModule.getComptimeDeclaration(symbol);
 
 			if (!declaration) {
 				continue;
@@ -153,24 +132,10 @@ export class ComptimeEvaluator
 			);
 
 			if (!ts.isExpression(result)) {
-				throw new Error(
-					`Comptime function "${name.text}" in "${declarationModule.path}" ` +
-					"must return a TypeScript expression.",
-				);
+				throw new Error(`Comptime function "${name.text}" in "${declarationModule.path}" must return a TypeScript expression.`);
 			}
 
 			results.set(call.node, result);
-
-			console.log("Comptime evaluated:", {
-				module: module.path,
-				expression: call.node.getText(module.sourceFile),
-				declaration: name.text,
-				result: ts.createPrinter().printNode(
-					ts.EmitHint.Expression,
-					result,
-					module.sourceFile,
-				),
-			});
 		}
 	}
 

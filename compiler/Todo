@@ -1,0 +1,7 @@
+Bugs:
+	☐ 1. propagate/generate import/export for forwarded references created in comptime.fn
+	☐ 2. remove comptime declarations in the final build
+
+
+
+1. When a comptime.fn is evaluated to a symbol binding, that binging must be available at the placed the comptime.fn is used.

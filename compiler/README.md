@@ -1,56 +1,35 @@
-# Comptime Implementation TODO
+# A typescript compile time compiler
 
-## 1. Symbol and Module Resolution
-- [x] Resolve imported symbols to their original declarations using the TypeScript `TypeChecker`.
-- [x] Link imports to their corresponding `Module` instances.
-- [x] Handle named re-exports and aliased exports.
-- [x] Identify comptime declarations through resolved symbols.
-- [ ] Track and verify default and namespace imports.
-- [ ] Verify all import and re-export resolution edge cases.
+## About
+The idea is that everything wrapped in a `comptime` or `comptime.fn` is evaluated at compile time. This creates the possibility to generate and transform the source code
+in a controlled way. For now the comptime context just exposes light wrappers around typescript internal api. Later the idea is to add more reflection with type information, generation etc.
 
-## 2. Dependency Discovery
-- [ ] Define data structures for comptime declarations, call sites, and dependencies.
-- [ ] Discover comptime calls in source ASTs.
-- [ ] Recursively discover comptime dependencies.
-- [ ] Detect circular dependencies.
+## Quick Demo
+### Compile time fetch
+```ts
+const todos = await comptime(() => fetch("/todos.json").then(response => response.json()));
+// after compilation the todos will contain the contents of the todos.json file
+// no fetch call will ever be made at runtime
+```
 
-## 3. Comptime Evaluation
-- [ ] Identify which transformed modules are required.
-- [ ] Load compiled comptime JavaScript modules.
-- [ ] Resolve comptime declarations to their JavaScript exports.
-- [ ] Validate comptime call arguments.
-- [ ] Evaluate comptime calls and cache results.
+### Compile time counter
+```ts
+export const next = comptime(() => {
+	let count = 0;
+	return comptime.fn((ctx: Comptime.Context) => ctx.syntax.literal(count++));
+});
 
-## 4. Source Rewriting
-- [ ] Associate evaluation results with their source expressions.
-- [ ] Convert generated comptime syntax into TypeScript AST nodes.
-- [ ] Replace comptime calls with generated expressions.
-- [ ] Emit the resulting runtime JavaScript.
 
-## 5. Testing
-- [ ] Test `signal(123)` end to end.
-- [ ] Test multiple calls and persistent comptime state.
-- [ ] Test nested comptime dependencies.
-- [ ] Test imports, aliases, and re-exports end to end.
-- [ ] Test invalid arguments and circular dependencies.
+// foo.ts
+import { next } from "./next";
 
-## Working Order
+const foo = next(); // generates `const foo = 0;`
 
-Complete one section at a time. Discuss the design before implementing each step, then test it before moving on.
 
-### Symbol and Module Resolution
+// foo.ts
+import { next } from "./next";
 
-- [x] Resolve imported symbols to their original declarations using the TypeScript `TypeChecker`.
-- [x] Link imports to their corresponding `Module` instances.
-- [x] Track named re-exports and `export *` relationships.
-- [x] Identify whether resolved declarations are comptime declarations.
-- [x] Ensure imports and re-exports reference the correct `Module` instances for the tested cases.
-- [ ] Verify default and namespace imports.
-- [ ] Verify recursive `export *` chains and ambiguous exports.
-- [ ] Test `getComptimeImport()` against direct imports, aliases, and barrel re-exports.
-
-**Goal:** Given an imported or re-exported symbol, determine its original declaration, owning module, and whether it is a comptime declaration.
-
-## As Last
-
-- [ ] Complete recursive `export *` symbol resolution, including edge cases and ambiguous exports.
+const bar = next(); // generates `const bar = 1;`
+```
+Since all comptime evaluation is done in the same nodejs process, the count variable will be preserved between module calls.
+One thing to note is that the evaluation order is undeterministic. The compiler iterates all files, walks the ast and evaluates comptime functions.

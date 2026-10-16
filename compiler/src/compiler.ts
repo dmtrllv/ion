@@ -11,20 +11,10 @@ export class Compiler {
 			throw new Error(ts.flattenDiagnosticMessageText(configFile.error.messageText, "\n"));
 		}
 
-		const config = ts.parseJsonConfigFileContent(
-			configFile.config,
-			ts.sys,
-			root,
-			undefined,
-			configPath
-		);
+		const config = ts.parseJsonConfigFileContent(configFile.config, ts.sys, root, undefined, configPath);
 
 		if (config.errors.length > 0) {
-			throw new Error(
-				config.errors
-					.map(error => ts.flattenDiagnosticMessageText(error.messageText, "\n"))
-					.join("\n")
-			);
+			throw new Error(config.errors.map(error => ts.flattenDiagnosticMessageText(error.messageText, "\n")).join("\n"));
 		}
 
 		const compiler = new Compiler(root, config);

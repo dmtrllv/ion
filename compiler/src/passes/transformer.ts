@@ -23,11 +23,7 @@ export class ModuleTransformer implements Pass<TransformedModule[], [ModuleMap, 
 
 	private transformComptimeModule(module: Module, outputPath: string): void {
 		const toRemove = new Set(module.removeStatements);
-		const macroDeclarations = new Set(
-			module.macroDeclarations.map(macro => macro.statement)
-		);
-
-		//console.log(`Transforming comptime module to ${outputPath}...`);
+		const macroDeclarations = new Set(module.macroDeclarations.map(macro => macro.statement));
 
 		const transformer: ts.TransformerFactory<ts.SourceFile> = context => {
 			const visit: ts.Visitor = node => {
@@ -36,46 +32,25 @@ export class ModuleTransformer implements Pass<TransformedModule[], [ModuleMap, 
 						return undefined;
 					}
 
-					const declarations = node.declarationList.declarations.filter(
-						declaration => !toRemove.has(declaration)
-					);
+					const declarations = node.declarationList.declarations.filter(declaration => !toRemove.has(declaration));
 
 					if (declarations.length === 0) {
 						return undefined;
 					}
 
-					const hasMacroDeclaration = declarations.some(
-						declaration => macroDeclarations.has(declaration)
-					);
+					const hasMacroDeclaration = declarations.some(declaration => macroDeclarations.has(declaration));
+					const modifiers = node.modifiers ? [...node.modifiers] : [];
 
-					const modifiers = node.modifiers
-						? [...node.modifiers]
-						: [];
-
-					if (
-						hasMacroDeclaration &&
-						!modifiers.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)
-					) {
+					if (hasMacroDeclaration && !modifiers.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
 						modifiers.unshift(ts.factory.createModifier(ts.SyntaxKind.ExportKeyword));
 					}
 
-					const declarationList =
-						declarations.length === node.declarationList.declarations.length
-							? node.declarationList
-							: ts.factory.updateVariableDeclarationList(
-								node.declarationList,
-								declarations
-							);
+					const declarationList = declarations.length === node.declarationList.declarations.length
+						? node.declarationList
+						: ts.factory.updateVariableDeclarationList(node.declarationList, declarations);
 
-					if (
-						declarationList !== node.declarationList ||
-						hasMacroDeclaration
-					) {
-						return ts.factory.updateVariableStatement(
-							node,
-							modifiers,
-							declarationList
-						);
+					if (declarationList !== node.declarationList || hasMacroDeclaration) {
+						return ts.factory.updateVariableStatement(node, modifiers, declarationList);
 					}
 				} else if (toRemove.has(node)) {
 					return undefined;
@@ -91,10 +66,7 @@ export class ModuleTransformer implements Pass<TransformedModule[], [ModuleMap, 
 
 		try {
 			const transformed = result.transformed[0]!;
-
-
 			const transformedSource = ts.createPrinter({ removeComments: true }).printFile(transformed);
-
 			const js = ts.transpileModule(transformedSource, {
 				compilerOptions: {
 					target: ts.ScriptTarget.ESNext,

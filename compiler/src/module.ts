@@ -12,14 +12,7 @@ export class Module {
 	public readonly reExports: ReExport[];
 	private readonly typeChecker: ts.TypeChecker;
 
-	public constructor(
-		typeChecker: ts.TypeChecker,
-		relativePath: string,
-		sourceFile: ts.SourceFile,
-		removeStatements: ts.Node[],
-		macroDeclarations: MacroDeclaration[],
-		compilerOptions: ts.CompilerOptions,
-	) {
+	public constructor(typeChecker: ts.TypeChecker, relativePath: string, sourceFile: ts.SourceFile, removeStatements: ts.Node[], macroDeclarations: MacroDeclaration[], compilerOptions: ts.CompilerOptions) {
 		this.typeChecker = typeChecker;
 		this.path = relativePath;
 		this.sourceFile = sourceFile;
@@ -31,17 +24,11 @@ export class Module {
 		this.reExports = this.resolveReExports();
 	}
 
-	private resolveImports(
-		typeChecker: ts.TypeChecker,
-		compilerOptions: ts.CompilerOptions,
-	): Import[] {
+	private resolveImports(typeChecker: ts.TypeChecker, compilerOptions: ts.CompilerOptions,): Import[] {
 		const imports: Import[] = [];
 
 		for (const node of this.sourceFile.statements) {
-			if (
-				!ts.isImportDeclaration(node) ||
-				!ts.isStringLiteral(node.moduleSpecifier)
-			) {
+			if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier)) {
 				continue;
 			}
 
@@ -51,20 +38,21 @@ export class Module {
 			if (clause) {
 				if (clause.name) {
 					const symbol = typeChecker.getSymbolAtLocation(clause.name);
-					if (symbol) symbols["default"] = symbol;
+					if (symbol)
+						symbols["default"] = symbol;
 				}
 
 				const bindings = clause.namedBindings;
 
 				if (bindings && ts.isNamespaceImport(bindings)) {
 					const symbol = typeChecker.getSymbolAtLocation(bindings.name);
-					if (symbol) symbols["*"] = symbol;
+					if (symbol)
+						symbols["*"] = symbol;
 				} else if (bindings && ts.isNamedImports(bindings)) {
 					for (const element of bindings.elements) {
 						const symbol = typeChecker.getSymbolAtLocation(element.name);
 						if (symbol) {
-							symbols[element.propertyName?.text ?? element.name.text] =
-								symbol;
+							symbols[element.propertyName?.text ?? element.name.text] = symbol;
 						}
 					}
 				}
@@ -108,10 +96,7 @@ export class Module {
 		}));
 	}
 
-	private resolveAlias(
-		typeChecker: ts.TypeChecker,
-		symbol: ts.Symbol,
-	): ts.Symbol {
+	private resolveAlias(typeChecker: ts.TypeChecker, symbol: ts.Symbol,): ts.Symbol {
 		if ((symbol.flags & ts.SymbolFlags.Alias) === 0) {
 			return symbol;
 		}
@@ -123,11 +108,7 @@ export class Module {
 		const reExports: ReExport[] = [];
 
 		for (const node of this.sourceFile.statements) {
-			if (
-				!ts.isExportDeclaration(node) ||
-				!node.moduleSpecifier ||
-				!ts.isStringLiteral(node.moduleSpecifier)
-			) {
+			if (!ts.isExportDeclaration(node) || !node.moduleSpecifier || !ts.isStringLiteral(node.moduleSpecifier)) {
 				continue;
 			}
 
@@ -172,9 +153,7 @@ export class Module {
 
 	public getComptimeDeclaration(target: ts.Symbol): MacroDeclaration | undefined {
 		return this.macroDeclarations.find(declaration => {
-			const symbol = this.typeChecker.getSymbolAtLocation(
-				declaration.statement.name
-			);
+			const symbol = this.typeChecker.getSymbolAtLocation(declaration.statement.name);
 
 			return symbol === target;
 		});
@@ -191,14 +170,10 @@ export class Module {
 			return undefined;
 		}
 
-		return exported.targetModule.getComptimeDeclaration(
-			exported.target
-		);
+		return exported.targetModule.getComptimeDeclaration(exported.target);
 	}
 
-	public getComptimeDeclarationForSymbol(
-		target: ts.Symbol,
-	): MacroDeclaration | undefined {
+	public getComptimeDeclarationForSymbol(target: ts.Symbol,): MacroDeclaration | undefined {
 		const declaration = this.getComptimeDeclaration(target);
 
 		if (declaration) {
@@ -239,13 +214,9 @@ export type Import = {
 };
 
 export type Export = {
-	/** Name exposed by this module. */
 	readonly name: string;
-	/** Symbol as exposed by this module. */
 	readonly symbol: ts.Symbol;
-	/** Original symbol after resolving TypeScript aliases. */
 	readonly target: ts.Symbol;
-	/** Module containing the original declaration, when available. */
 	targetModule?: Module | undefined;
 };
 

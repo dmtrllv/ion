@@ -11,7 +11,17 @@ import {
 import { Pass } from "./pass.js";
 
 export class ModuleResolver implements Pass<ModuleMap> {
+
 	public async run(compiler: Compiler): Promise<ModuleMap> {
+		const sourceFiles = compiler.sourcePaths.map((path) =>
+			compiler.getSource(path),
+		);
+
+		const entryPoints = this.resolveImports(
+			compiler.typeChecker,
+			sourceFiles,
+		);
+
 		const modules: ModuleMap = {};
 
 		for (const path of compiler.sourcePaths) {
@@ -20,6 +30,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 				compiler.options,
 				compiler.relativePath(path),
 				compiler.getSource(path),
+				entryPoints,
 			);
 		}
 
@@ -27,6 +38,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 
 		return modules;
 	}
+
 
 	private linkModules(
 		modules: ModuleMap,
@@ -65,7 +77,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 			}
 		}
 
-		// Link exports to the modules containing their original declarations.
+		// Link each export to the module containing its original declaration.
 		for (const module of Object.values(modules)) {
 			for (const exported of module.exports) {
 				exported.targetModule = this.findDeclarationModule(
@@ -94,9 +106,10 @@ export class ModuleResolver implements Pass<ModuleMap> {
 	}
 
 	public isComptimeExport(exported: Export): boolean {
-		return exported.targetModule?.getComptimeDeclaration(
-			exported.target,
-		) !== undefined;
+		return (
+			exported.targetModule?.getComptimeDeclaration(exported.target) !==
+			undefined
+		);
 	}
 
 	public resolve(
@@ -104,10 +117,8 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		compilerOptions: ts.CompilerOptions,
 		relativePath: string,
 		source: ts.SourceFile,
+		entryPoints: Map<ts.Symbol, MacroType>,
 	): Module {
-		const { imports, namespaces, macroNamespaces } =
-			this.resolveImports(source);
-
 		const macroDeclarations: MacroDeclaration[] = [];
 		const removeStatements: ts.Node[] = [];
 
@@ -121,16 +132,22 @@ export class ModuleResolver implements Pass<ModuleMap> {
 					) {
 						const type = this.resolveMacroType(
 							declaration.initializer.expression,
-							imports,
-							namespaces,
-							macroNamespaces,
+							typeChecker,
+							entryPoints,
 						);
+
+						console.log({
+							file: relativePath,
+							expression: declaration.initializer.expression.getText(source),
+							type,
+						});
 
 						if (type) {
 							macroDeclarations.push({
 								type,
 								statement: declaration,
 							});
+
 							continue;
 						}
 					}
@@ -156,6 +173,134 @@ export class ModuleResolver implements Pass<ModuleMap> {
 			macroDeclarations,
 			compilerOptions,
 		);
+	}
+
+
+	private resolveImports(
+		typeChecker: ts.TypeChecker,
+		sourceFiles: readonly ts.SourceFile[],
+	): Map<ts.Symbol, MacroType> {
+		const entryPoints = new Map<ts.Symbol, MacroType>();
+
+		const resolveAlias = (symbol: ts.Symbol): ts.Symbol => {
+			return (symbol.flags & ts.SymbolFlags.Alias) !== 0
+				? typeChecker.getAliasedSymbol(symbol)
+				: symbol;
+		};
+
+		const registerApi = (moduleSymbol: ts.Symbol): void => {
+			for (const exported of typeChecker.getExportsOfModule(moduleSymbol)) {
+				const symbol = resolveAlias(exported);
+
+				if (exported.name === "comptime") {
+					entryPoints.set(symbol, "comptime");
+
+					const declaration =
+						symbol.valueDeclaration ?? symbol.declarations?.[0];
+
+					if (!declaration) {
+						continue;
+					}
+
+					const comptimeType = typeChecker.getTypeOfSymbolAtLocation(
+						symbol,
+						declaration,
+					);
+
+					const fn = typeChecker.getPropertyOfType(comptimeType, "fn");
+
+					if (fn) {
+						entryPoints.set(resolveAlias(fn), "comptime.fn");
+					}
+				}
+
+				if (exported.name === "macro") {
+					const declaration =
+						symbol.valueDeclaration ?? symbol.declarations?.[0];
+
+					if (!declaration) {
+						continue;
+					}
+
+					const macroType = typeChecker.getTypeOfSymbolAtLocation(
+						symbol,
+						declaration,
+					);
+
+					for (const [name, macroTypeName] of [
+						["generate", "macro.generate"],
+						["attribute", "macro.attribute"],
+					] as const) {
+						const property = typeChecker.getPropertyOfType(
+							macroType,
+							name,
+						);
+
+						if (property) {
+							entryPoints.set(
+								resolveAlias(property),
+								macroTypeName,
+							);
+						}
+					}
+				}
+			}
+		};
+
+		for (const sourceFile of sourceFiles) {
+			for (const statement of sourceFile.statements) {
+				if (
+					!ts.isImportDeclaration(statement) ||
+					!ts.isStringLiteral(statement.moduleSpecifier) ||
+					statement.moduleSpecifier.text !== "@ion/comptime"
+				) {
+					continue;
+				}
+
+				const moduleSymbol = typeChecker.getSymbolAtLocation(
+					statement.moduleSpecifier,
+				);
+
+				if (moduleSymbol) {
+					registerApi(moduleSymbol);
+				}
+			}
+		}
+
+		return entryPoints;
+	}
+
+	private resolveAlias(
+		typeChecker: ts.TypeChecker,
+		symbol: ts.Symbol,
+	): ts.Symbol {
+		let current = symbol;
+
+		while ((current.flags & ts.SymbolFlags.Alias) !== 0) {
+			const target = typeChecker.getAliasedSymbol(current);
+
+			if (target === current) {
+				break;
+			}
+
+			current = target;
+		}
+
+		return current;
+	}
+
+	private resolveMacroType(
+		expression: ts.Expression,
+		typeChecker: ts.TypeChecker,
+		entryPoints: Map<ts.Symbol, MacroType>,
+	): MacroType | undefined {
+		const symbol = typeChecker.getSymbolAtLocation(expression);
+
+		if (!symbol) {
+			return undefined;
+		}
+
+		return entryPoints.get(this.resolveAlias(typeChecker, symbol));
 	}
 
 	private shouldRemoveExpression(
@@ -184,6 +329,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		};
 
 		visit(expression);
+
 		return shouldRemove;
 	}
 
@@ -219,118 +365,8 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		};
 
 		visit(statement);
+
 		return shouldRemove;
-	}
-
-	private resolveImports(source: ts.SourceFile): {
-		imports: Map<string, MacroType>;
-		namespaces: Set<string>;
-		macroNamespaces: Set<string>;
-	} {
-		const imports = new Map<string, MacroType>();
-		const namespaces = new Set<string>();
-		const macroNamespaces = new Set<string>();
-
-		for (const statement of source.statements) {
-			if (
-				!ts.isImportDeclaration(statement) ||
-				!ts.isStringLiteral(statement.moduleSpecifier) ||
-				statement.moduleSpecifier.text !== "@ion/comptime"
-			) {
-				continue;
-			}
-
-			const clause = statement.importClause;
-
-			if (!clause) {
-				continue;
-			}
-
-			const bindings = clause.namedBindings;
-
-			if (clause.name) {
-				imports.set(clause.name.text, "comptime");
-			}
-
-			if (!bindings) {
-				continue;
-			}
-
-			if (ts.isNamespaceImport(bindings)) {
-				namespaces.add(bindings.name.text);
-				continue;
-			}
-
-			if (!ts.isNamedImports(bindings)) {
-				continue;
-			}
-
-			for (const element of bindings.elements) {
-				const importedName =
-					element.propertyName?.text ?? element.name.text;
-
-				switch (importedName) {
-					case "comptime":
-						imports.set(element.name.text, "comptime");
-						break;
-					case "generate":
-						imports.set(element.name.text, "macro.generate");
-						break;
-					case "attribute":
-						imports.set(element.name.text, "macro.attribute");
-						break;
-					case "fn":
-						imports.set(element.name.text, "comptime.fn");
-						break;
-					case "macro":
-						macroNamespaces.add(element.name.text);
-						break;
-				}
-			}
-		}
-
-		return { imports, namespaces, macroNamespaces };
-	}
-
-	private resolveMacroType(
-		expression: ts.Node,
-		imports: Map<string, MacroType>,
-		namespaces: Set<string>,
-		macroNamespaces: Set<string>,
-	): MacroType | undefined {
-		if (ts.isIdentifier(expression)) {
-			return imports.get(expression.text);
-		}
-
-		if (
-			!ts.isPropertyAccessExpression(expression) ||
-			!ts.isIdentifier(expression.expression)
-		) {
-			return undefined;
-		}
-
-		const namespace = expression.expression.text;
-		const property = expression.name.text;
-
-		if (
-			!namespaces.has(namespace) &&
-			!macroNamespaces.has(namespace)
-		) {
-			return undefined;
-		}
-
-		switch (property) {
-			case "comptime":
-				return "comptime";
-			case "generate":
-				return "macro.generate";
-			case "attribute":
-				return "macro.attribute";
-			case "fn":
-				return "comptime.fn";
-			default:
-				return undefined;
-		}
 	}
 
 	public getComptimeImport(

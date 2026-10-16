@@ -43,9 +43,12 @@ const createSignal = <T>(id: number, value: T): Signal<T> => new SignalImpl(id, 
 export const signal = comptime((ctx) => {
 	let count = 0;
 
+	// todo: this needs to be checked for export
+	// or just let it error on runtime? 
+	// then its kinda obvious that createSignal is used without export
 	const fnRef = ctx.syntax.ref(createSignal);
 
-	return comptime.fn(<T>(ctx: Comptime.Context, value: T) => {
+	return comptime.fn(<T>(ctx: Comptime.Context, value: Comptime.Expr<T>) => {
 		let id = ctx.syntax.literal(count++);
 		return ctx.syntax.call<Signal<T>, [number, T]>(fnRef, id, value);
 	});

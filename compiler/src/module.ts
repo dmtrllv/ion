@@ -195,6 +195,28 @@ export class Module {
 			exported.target
 		);
 	}
+
+	public getComptimeDeclarationForSymbol(
+		target: ts.Symbol,
+	): MacroDeclaration | undefined {
+		const declaration = this.getComptimeDeclaration(target);
+
+		if (declaration) {
+			return declaration;
+		}
+
+		for (const exported of this.exports) {
+			if (exported.target === target && exported.targetModule) {
+				const resolved = exported.targetModule.getComptimeDeclaration(target);
+
+				if (resolved) {
+					return resolved;
+				}
+			}
+		}
+
+		return undefined;
+	}
 }
 
 export type MacroDeclaration = {

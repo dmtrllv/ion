@@ -1,5 +1,6 @@
 
 import * as ts from "typescript";
+import { pathToFileURL } from "node:url";
 import { Compiler } from "../compiler.js";
 import { Module } from "../module.js";
 import { Pass } from "./pass.js";
@@ -11,45 +12,103 @@ export type ComptimeCall = {
 	readonly node: ts.CallExpression;
 };
 
-export class ComptimeEvaluator
-	implements Pass<void, [ModuleMap, TransformedModule[]]>
-{
+export class ComptimeEvaluator implements Pass<void, [ModuleMap, TransformedModule[]]> {
+	public readonly results = new Map<ts.CallExpression, unknown>();
+
 	public async run(
 		compiler: Compiler,
 		modules: ModuleMap,
 		transformedModules: TransformedModule[],
 	): Promise<void> {
-		await Promise.all(
-			transformedModules.map(transformedModule =>
-				this.evaluate(compiler, transformedModule, modules)
-			)
-		);
+		const runtimeModules = new Map<Module, Record<string, unknown>>();
+
+		for (const transformed of transformedModules) {
+			const runtimeModule = await import(
+				pathToFileURL(transformed.path).href
+			);
+
+			runtimeModules.set(transformed.module, runtimeModule);
+		}
+
+		for (const transformed of transformedModules) {
+			await this.evaluate(
+				compiler,
+				transformed,
+				modules,
+				runtimeModules,
+			);
+		}
 	}
 
 	private async evaluate(
 		compiler: Compiler,
 		transformedModule: TransformedModule,
 		modules: ModuleMap,
+		runtimeModules: Map<Module, Record<string, unknown>>,
 	): Promise<void> {
 		const calls = this.findCallSites(transformedModule.module);
 
 		for (const call of calls) {
 			const symbol = this.resolveCallSymbol(compiler, call);
 
-			const declarationModule = symbol
-				? this.findDeclarationModule(symbol, modules)
-				: undefined;
+			if (!symbol) {
+				continue;
+			}
 
-			const declaration = symbol && declarationModule
-				? declarationModule.getComptimeDeclaration(symbol)
-				: undefined;
+			const declarationModule = this.findDeclarationModule(
+				symbol,
+				modules,
+			);
 
-			console.log("Comptime call lookup:", {
+			if (!declarationModule) {
+				continue;
+			}
+
+			const declaration =
+				declarationModule.getComptimeDeclaration(symbol);
+
+			if (!declaration) {
+				continue;
+			}
+
+			const name = declaration.statement.name;
+
+			if (!ts.isIdentifier(name)) {
+				continue;
+			}
+
+			const runtimeModule = runtimeModules.get(declarationModule);
+
+			if (!runtimeModule) {
+				throw new Error(
+					`No generated runtime module for ${declarationModule.path}`,
+				);
+			}
+
+			const exported = runtimeModule[name.text];
+
+			if (typeof exported !== "function") {
+				console.log(exported);
+				throw new Error(
+					`Comptime export "${name.text}" in "${declarationModule.path}" is not callable`,
+				);
+			}
+
+			if (call.node.arguments.length !== 0) {
+				throw new Error(
+					`Comptime call arguments are not implemented yet: ${call.node.getText(call.module.sourceFile)}`,
+				);
+			}
+
+			const result = await exported();
+
+			this.results.set(call.node, result);
+
+			console.log("Comptime evaluated:", {
 				module: call.module.path,
-				expression: call.node.expression.getText(call.module.sourceFile),
-				symbol: symbol?.getName(),
-				declarationModule: declarationModule?.path,
-				comptimeType: declaration?.type,
+				expression: call.node.getText(call.module.sourceFile),
+				declaration: name.text,
+				result,
 			});
 		}
 	}

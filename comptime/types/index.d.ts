@@ -1,38 +1,38 @@
-export declare const comptime: {
-    <T extends Comptime.Item>(comptimeClosure: (ctx: Comptime.Context) => T): T;
-    readonly fn: <R, Args extends any[]>(val: (ctx: Comptime.Context, ...args: Args) => Comptime.Expr<R>) => (...args: Args) => R;
+import * as ts from "typescript";
+export type Comptime = {
+    <T>(comptimeClosure: (ctx: Comptime.Context) => T): T;
+    readonly fn: <R, Args extends any[]>(val: (ctx: Comptime.Context, ...args: ComptimeArgs<Args>) => Comptime.Expr<R>) => (...args: Args) => R;
 };
-export declare const macro: {
-    readonly attribute: (...args: any) => any;
-    readonly generate: <T extends Comptime.Item>(generator: (ctx: Comptime.Context) => T) => Comptime.Generated<T>;
+type ComptimeArgs<T extends any[]> = {
+    [K in keyof T]: Comptime.Expr<T[K]>;
+};
+export declare const comptime: Comptime;
+type CallArgs<Args extends any[]> = {
+    [K in keyof Args]: Args[K] | Comptime.Expr<Args[K]>;
 };
 export declare namespace Comptime {
-    export type Function = {};
-    export type Class = {};
-    export type Statement = {};
-    export type Expr<T> = {
-        _phantom: T;
+    export type Function = ts.FunctionDeclaration;
+    export type Class = ts.ClassDeclaration;
+    export type Statement = ts.Statement;
+    export type Expr<T> = ts.Expression & {
+        readonly __type?: T;
     };
-    export type Ref<T> = {
-        _phantom: T;
+    export type Ref<T> = ts.Identifier & {
+        readonly __type?: T;
     };
     export type Item = Function | Class | Statement | Expr<any>;
-    export type Generated<T> = T extends Function ? (...args: any[]) => any : T extends Class ? new (...args: any) => any : void;
     export type CallProps = {};
+    type CreateFunctionProps = {};
     export type Context = {
         readonly syntax: Syntax;
         readonly source: Source;
     };
-    type CreateFunctionProps = {};
     export type Syntax = {
         readonly createFunction: (props: CreateFunctionProps) => Function;
-        readonly literal: <T extends string | number | boolean>(val: T) => Expr<T>;
+        readonly literal: <T extends string | number | boolean>(value: T) => Expr<T>;
         readonly parseStatements: (source: string) => Statement[];
         readonly call: <T, Args extends any[]>(target: Ref<(...args: Args) => T>, ...args: CallArgs<Args>) => Expr<T>;
-        readonly ref: <T>(val: T) => Ref<T>;
-    };
-    type CallArgs<Args extends any[]> = {
-        [K in keyof Args]: Args[K] | Expr<Args[K]>;
+        readonly ref: <T>(value: T) => Ref<T>;
     };
     export type Source = {
         readonly caller: () => Location;
@@ -46,3 +46,9 @@ export declare namespace Comptime {
     };
     export {};
 }
+type Macros = {
+    readonly attribute: (...args: any[]) => any;
+    readonly generate: <T extends Comptime.Item>(generator: (ctx: Comptime.Context) => T) => T;
+};
+export declare const macro: Macros;
+export {};

@@ -14,7 +14,7 @@ export class ModuleTransformer implements Pass<TransformedModule[], [ModuleMap, 
 			const output = join(outputPath, _compiler.relativePath(path).replace(".ts", ".js"));
 			this.transformComptimeModule(module, output)
 			transformedModules.push({
-				original: module,
+				module: module,
 				path: output
 			});
 		}
@@ -114,7 +114,7 @@ export class ModuleTransformer implements Pass<TransformedModule[], [ModuleMap, 
 }
 
 export type TransformedModule = {
-	original: Module,
+	module: Module,
 	path: string;
 };
 

@@ -1,34 +1,37 @@
 
 import * as ts from "typescript";
 import { Compiler } from "../compiler.js";
-import { Export, Import, MacroDeclaration, MacroType, Module } from "../module.js";
+import {
+	Export,
+	Import,
+	MacroDeclaration,
+	MacroType,
+	Module,
+} from "../module.js";
 import { Pass } from "./pass.js";
 
 export class ModuleResolver implements Pass<ModuleMap> {
 	public async run(compiler: Compiler): Promise<ModuleMap> {
-		const typeChecker = compiler.typeChecker;
-		const compilerOptions = compiler.options;
 		const modules: ModuleMap = {};
 
 		for (const path of compiler.sourcePaths) {
-			const source = compiler.getSource(path);
-			const relativePath = compiler.relativePath(path);
-
 			modules[path] = this.resolve(
-				typeChecker,
-				compilerOptions,
-				relativePath,
-				source
+				compiler.typeChecker,
+				compiler.options,
+				compiler.relativePath(path),
+				compiler.getSource(path),
 			);
 		}
 
-		this.linkModules(modules, compilerOptions);
+		this.linkModules(modules, compiler.options);
 
 		return modules;
 	}
 
-
-	private linkModules(modules: ModuleMap, compilerOptions: ts.CompilerOptions): void {
+	private linkModules(
+		modules: ModuleMap,
+		compilerOptions: ts.CompilerOptions,
+	): void {
 		const modulesByFile = new Map<string, Module>();
 
 		for (const [path, module] of Object.entries(modules)) {
@@ -36,20 +39,14 @@ export class ModuleResolver implements Pass<ModuleMap> {
 			modulesByFile.set(module.fullPath, module);
 		}
 
+		// Link imports and re-exports to modules in this compilation.
 		for (const module of Object.values(modules)) {
-			console.log(`\nModule: ${module.path}`);
+			for (const imported of module.imports) {
+				if (imported.path === "@ion/comptime") {
+					continue;
+				}
 
-			for (const imp of module.imports) {
-				if (imp.path === "@ion/comptime") continue;
-
-				imp.module = modulesByFile.get(imp.absolutePath);
-
-				console.log("Import:", {
-					path: imp.path,
-					absolutePath: imp.absolutePath,
-					resolvedModule: imp.module?.path,
-					symbols: Object.keys(imp.symbols),
-				});
+				imported.module = modulesByFile.get(imported.absolutePath);
 			}
 
 			for (const reExport of module.reExports) {
@@ -61,39 +58,44 @@ export class ModuleResolver implements Pass<ModuleMap> {
 				);
 
 				const absolutePath = result.resolvedModule?.resolvedFileName;
-				if (absolutePath) reExport.module = modulesByFile.get(absolutePath);
 
-				console.log("Re-export:", {
-					path: reExport.path,
-					kind: reExport.kind,
-					resolvedModule: reExport.module?.path,
-				});
-			}
-
-			for (const exported of module.exports) {
-				for (const declaration of exported.target.declarations ?? []) {
-					const sourceFile = declaration.getSourceFile();
-					const targetModule = modulesByFile.get(sourceFile.fileName);
-
-					if (targetModule) {
-						exported.targetModule = targetModule;
-						break;
-					}
+				if (absolutePath) {
+					reExport.module = modulesByFile.get(absolutePath);
 				}
+			}
+		}
 
-				console.log("Export:", {
-					name: exported.name,
-					target: exported.target.getName(),
-					targetModule: exported.targetModule?.path,
-					isComptime: this.isComptimeExport(exported),
-				});
+		// Link exports to the modules containing their original declarations.
+		for (const module of Object.values(modules)) {
+			for (const exported of module.exports) {
+				exported.targetModule = this.findDeclarationModule(
+					exported.target,
+					modulesByFile,
+				);
 			}
 		}
 	}
 
+	private findDeclarationModule(
+		symbol: ts.Symbol,
+		modulesByFile: Map<string, Module>,
+	): Module | undefined {
+		for (const declaration of symbol.declarations ?? []) {
+			const module = modulesByFile.get(
+				declaration.getSourceFile().fileName,
+			);
+
+			if (module) {
+				return module;
+			}
+		}
+
+		return undefined;
+	}
+
 	public isComptimeExport(exported: Export): boolean {
 		return exported.targetModule?.getComptimeDeclaration(
-			exported.target
+			exported.target,
 		) !== undefined;
 	}
 
@@ -101,7 +103,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		typeChecker: ts.TypeChecker,
 		compilerOptions: ts.CompilerOptions,
 		relativePath: string,
-		source: ts.SourceFile
+		source: ts.SourceFile,
 	): Module {
 		const { imports, namespaces, macroNamespaces } =
 			this.resolveImports(source);
@@ -121,13 +123,13 @@ export class ModuleResolver implements Pass<ModuleMap> {
 							declaration.initializer.expression,
 							imports,
 							namespaces,
-							macroNamespaces
+							macroNamespaces,
 						);
 
 						if (type) {
 							macroDeclarations.push({
 								type,
-								statement: declaration
+								statement: declaration,
 							});
 							continue;
 						}
@@ -152,12 +154,12 @@ export class ModuleResolver implements Pass<ModuleMap> {
 			source,
 			removeStatements,
 			macroDeclarations,
-			compilerOptions
+			compilerOptions,
 		);
 	}
 
 	private shouldRemoveExpression(
-		expression: ts.Expression | undefined
+		expression: ts.Expression | undefined,
 	): boolean {
 		if (!expression) {
 			return false;
@@ -287,18 +289,14 @@ export class ModuleResolver implements Pass<ModuleMap> {
 			}
 		}
 
-		return {
-			imports,
-			namespaces,
-			macroNamespaces
-		};
+		return { imports, namespaces, macroNamespaces };
 	}
 
 	private resolveMacroType(
 		expression: ts.Node,
 		imports: Map<string, MacroType>,
 		namespaces: Set<string>,
-		macroNamespaces: Set<string>
+		macroNamespaces: Set<string>,
 	): MacroType | undefined {
 		if (ts.isIdentifier(expression)) {
 			return imports.get(expression.text);
@@ -335,12 +333,11 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		}
 	}
 
-	public getComptimeImport(imported: Import, importedName: string): MacroDeclaration | undefined {
-		if (!imported.module) {
-			return undefined;
-		}
-
-		return imported.module.getComptimeImport(importedName);
+	public getComptimeImport(
+		imported: Import,
+		importedName: string,
+	): MacroDeclaration | undefined {
+		return imported.module?.getComptimeImport(importedName);
 	}
 }
 

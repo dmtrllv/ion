@@ -224,7 +224,7 @@ export type Export = {
 	/** Original symbol after resolving TypeScript aliases. */
 	readonly target: ts.Symbol;
 	/** Module containing the original declaration, when available. */
-	targetModule?: Module;
+	targetModule?: Module | undefined;
 };
 
 export type ReExport = {

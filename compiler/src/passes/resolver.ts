@@ -1,7 +1,7 @@
 
 import * as ts from "typescript";
 import { Compiler } from "../compiler.js";
-import { Export, MacroDeclaration, MacroType, Module } from "../module.js";
+import { Export, Import, MacroDeclaration, MacroType, Module } from "../module.js";
 import { Pass } from "./pass.js";
 
 export class ModuleResolver implements Pass<ModuleMap> {
@@ -28,10 +28,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 	}
 
 
-	private linkModules(
-		modules: ModuleMap,
-		compilerOptions: ts.CompilerOptions
-	): void {
+	private linkModules(modules: ModuleMap, compilerOptions: ts.CompilerOptions): void {
 		const modulesByFile = new Map<string, Module>();
 
 		for (const [path, module] of Object.entries(modules)) {
@@ -40,12 +37,19 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		}
 
 		for (const module of Object.values(modules)) {
+			console.log(`\nModule: ${module.path}`);
+
 			for (const imp of module.imports) {
-				if (imp.path === "@ion/comptime") {
-					continue;
-				}
+				if (imp.path === "@ion/comptime") continue;
 
 				imp.module = modulesByFile.get(imp.absolutePath);
+
+				console.log("Import:", {
+					path: imp.path,
+					absolutePath: imp.absolutePath,
+					resolvedModule: imp.module?.path,
+					symbols: Object.keys(imp.symbols),
+				});
 			}
 
 			for (const reExport of module.reExports) {
@@ -53,14 +57,17 @@ export class ModuleResolver implements Pass<ModuleMap> {
 					reExport.path,
 					module.sourceFile.fileName,
 					compilerOptions,
-					ts.sys
+					ts.sys,
 				);
 
 				const absolutePath = result.resolvedModule?.resolvedFileName;
+				if (absolutePath) reExport.module = modulesByFile.get(absolutePath);
 
-				if (absolutePath) {
-					reExport.module = modulesByFile.get(absolutePath);
-				}
+				console.log("Re-export:", {
+					path: reExport.path,
+					kind: reExport.kind,
+					resolvedModule: reExport.module?.path,
+				});
 			}
 
 			for (const exported of module.exports) {
@@ -73,6 +80,13 @@ export class ModuleResolver implements Pass<ModuleMap> {
 						break;
 					}
 				}
+
+				console.log("Export:", {
+					name: exported.name,
+					target: exported.target.getName(),
+					targetModule: exported.targetModule?.path,
+					isComptime: this.isComptimeExport(exported),
+				});
 			}
 		}
 	}
@@ -319,6 +333,14 @@ export class ModuleResolver implements Pass<ModuleMap> {
 			default:
 				return undefined;
 		}
+	}
+
+	public getComptimeImport(imported: Import, importedName: string): MacroDeclaration | undefined {
+		if (!imported.module) {
+			return undefined;
+		}
+
+		return imported.module.getComptimeImport(importedName);
 	}
 }
 

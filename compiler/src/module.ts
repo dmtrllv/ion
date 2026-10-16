@@ -10,6 +10,7 @@ export class Module {
 	public readonly imports: Import[];
 	public readonly exports: Export[];
 	public readonly reExports: ReExport[];
+	private readonly typeChecker: ts.TypeChecker;
 
 	public constructor(
 		typeChecker: ts.TypeChecker,
@@ -19,6 +20,7 @@ export class Module {
 		macroDeclarations: MacroDeclaration[],
 		compilerOptions: ts.CompilerOptions,
 	) {
+		this.typeChecker = typeChecker;
 		this.path = relativePath;
 		this.sourceFile = sourceFile;
 		this.usesComptime = macroDeclarations.length !== 0;
@@ -169,11 +171,29 @@ export class Module {
 	}
 
 	public getComptimeDeclaration(target: ts.Symbol): MacroDeclaration | undefined {
-		return this.macroDeclarations.find(declaration => target.declarations?.includes(declaration.statement));
+		return this.macroDeclarations.find(declaration => {
+			const symbol = this.typeChecker.getSymbolAtLocation(
+				declaration.statement.name
+			);
+
+			return symbol === target;
+		});
 	}
 
 	public getExport(name: string): Export | undefined {
 		return this.exports.find(exported => exported.name === name);
+	}
+
+	public getComptimeImport(importedName: string): MacroDeclaration | undefined {
+		const exported = this.getExport(importedName);
+
+		if (!exported?.targetModule) {
+			return undefined;
+		}
+
+		return exported.targetModule.getComptimeDeclaration(
+			exported.target
+		);
 	}
 }
 

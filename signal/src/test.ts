@@ -1,3 +1,3 @@
-import { signal } from "./signal.js";
+export { signal as createSignal } from "./index.js";
 
-export const test = signal(123);
+export const test = createSignal(123);

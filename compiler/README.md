@@ -1,10 +1,12 @@
 # Comptime Implementation TODO
 
 ## 1. Symbol and Module Resolution
-- [ ] Resolve imported symbols to their original declarations.
-- [ ] Link imports to their corresponding `Module` instances.
-- [ ] Handle re-exports and aliased imports.
-- [ ] Identify comptime declarations through resolved symbols.
+- [x] Resolve imported symbols to their original declarations using the TypeScript `TypeChecker`.
+- [x] Link imports to their corresponding `Module` instances.
+- [x] Handle named re-exports and aliased exports.
+- [x] Identify comptime declarations through resolved symbols.
+- [ ] Track and verify default and namespace imports.
+- [ ] Verify all import and re-export resolution edge cases.
 
 ## 2. Dependency Discovery
 - [ ] Define data structures for comptime declarations, call sites, and dependencies.
@@ -29,7 +31,7 @@
 - [ ] Test `signal(123)` end to end.
 - [ ] Test multiple calls and persistent comptime state.
 - [ ] Test nested comptime dependencies.
-- [ ] Test imports, aliases, and re-exports.
+- [ ] Test imports, aliases, and re-exports end to end.
 - [ ] Test invalid arguments and circular dependencies.
 
 ## Working Order
@@ -38,13 +40,17 @@ Complete one section at a time. Discuss the design before implementing each step
 
 ### Symbol and Module Resolution
 
-- [ ] Resolve imported symbols to their original declarations using the TypeScript `TypeChecker`.
-- [ ] Track named, default, namespace, and aliased imports.
-- [ ] Track named re-exports and `export *` relationships.
-- [ ] Identify whether resolved declarations are comptime declarations.
-- [ ] Ensure imports and re-exports reference the correct `Module` instances.
+- [x] Resolve imported symbols to their original declarations using the TypeScript `TypeChecker`.
+- [x] Link imports to their corresponding `Module` instances.
+- [x] Track named re-exports and `export *` relationships.
+- [x] Identify whether resolved declarations are comptime declarations.
+- [x] Ensure imports and re-exports reference the correct `Module` instances for the tested cases.
+- [ ] Verify default and namespace imports.
+- [ ] Verify recursive `export *` chains and ambiguous exports.
+- [ ] Test `getComptimeImport()` against direct imports, aliases, and barrel re-exports.
 
-**Goal:** Given any imported or re-exported symbol, determine its original declaration, owning module, and whether it is a comptime declaration.
+**Goal:** Given an imported or re-exported symbol, determine its original declaration, owning module, and whether it is a comptime declaration.
 
-## As last:
-`export *` recursive symbol resolution
+## As Last
+
+- [ ] Complete recursive `export *` symbol resolution, including edge cases and ambiguous exports.

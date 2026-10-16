@@ -1,1 +1,0 @@
-export { comptime, macro } from "@ion/comptime";

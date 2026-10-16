@@ -1,6 +1,8 @@
 Bugs:
 	✔ 1. propagate/generate import/export for forwarded references created in comptime.fn @done(26-10-17 01:11)
-	☐ 2. remove comptime declarations in the final build
+	☐ 2. cross package comptime evalution
+	☐ 3. remove comptime declarations in the final build
+
 
 
 

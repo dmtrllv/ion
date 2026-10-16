@@ -3,7 +3,7 @@
 	"version": "0.0.1",
 	"main": "dist/index.js",
 	"scripts": {
-		"build": "node ../compiler build --lib"
+		"build": "ion build --lib"
 	},
 	"author": "Dimitri Lilov",
 	"type": "module",
@@ -17,6 +17,9 @@
 		"@ion/compiler": "file:../compiler"
 	},
 	"exports": {
-		".": "./src/index.ts"
+		".": {
+			"import": "./src/index.js",
+			"types": "./types/index.d.ts"
+		}
 	}
 }

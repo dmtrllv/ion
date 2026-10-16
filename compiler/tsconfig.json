@@ -10,7 +10,7 @@
 			"node"
 		],
 		"esModuleInterop": true,
-		"declaration": true
+		"declaration": false
 	},
 	"include": [
 		"src/**/*.ts"

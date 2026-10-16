@@ -35,3 +35,13 @@
 ## Working Order
 
 Complete one section at a time. Discuss the design before implementing each step, then test it before moving on.
+
+### Symbol and Module Resolution
+
+- [ ] Resolve imported symbols to their original declarations using the TypeScript `TypeChecker`.
+- [ ] Track named, default, namespace, and aliased imports.
+- [ ] Track named re-exports and `export *` relationships.
+- [ ] Identify whether resolved declarations are comptime declarations.
+- [ ] Ensure imports and re-exports reference the correct `Module` instances.
+
+**Goal:** Given any imported or re-exported symbol, determine its original declaration, owning module, and whether it is a comptime declaration.

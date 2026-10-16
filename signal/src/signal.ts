@@ -38,7 +38,7 @@ export interface Signal<T> {
 
 export type Unsubscriber = () => void;
 
-const createSignal = <T>(id: number, value: T): Signal<T> => new SignalImpl(id, value);
+export const createSignal = <T>(id: number, value: T): Signal<T> => new SignalImpl(id, value);
 
 export const signal = comptime((ctx) => {
 	let count = 0;

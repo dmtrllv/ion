@@ -55,9 +55,15 @@ const createContext = (): Comptime.Context => ({
 				);
 			}
 
-			return ts.factory.createIdentifier(
+			const identifier = ts.factory.createIdentifier(
 				value.name,
 			) as Comptime.Ref<T>;
+
+			Object.defineProperty(identifier, "__ion_comptime_ref__", {
+				value: value.name,
+			});
+
+			return identifier;
 		},
 	},
 
@@ -140,6 +146,7 @@ export namespace Comptime {
 
 	export type Ref<T> = ts.Identifier & {
 		readonly __type?: T;
+		readonly __ion_comptime_ref__?: string;
 	};
 
 	export type Item =

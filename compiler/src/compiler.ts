@@ -1,6 +1,7 @@
 import { resolve, sep } from "node:path";
 import * as ts from "typescript";
 import { Pass } from "./passes/pass.js";
+import { RefError } from "./passes/writer.js";
 
 export class Compiler {
 	public static run = async <T>(root: string, callback: (compiler: Compiler) => T): Promise<Awaited<T>> => {
@@ -19,7 +20,15 @@ export class Compiler {
 
 		const compiler = new Compiler(root, config);
 
-		return await callback(compiler);
+		try {
+			return await callback(compiler);
+		} catch(e) {
+			if(e instanceof RefError) {
+				console.log(e.message);
+				process.exit(0);
+			}
+			throw e;
+		}
 	};
 
 	public readonly sourceRoot: string;

@@ -19,6 +19,7 @@ export declare namespace Comptime {
     };
     export type Ref<T> = ts.Identifier & {
         readonly __type?: T;
+        readonly __ion_comptime_ref__?: string;
     };
     export type Item = Function | Class | Statement | Expr<any>;
     export type CallProps = {};

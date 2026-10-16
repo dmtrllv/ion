@@ -1,7 +1,7 @@
 
 import * as ts from "typescript";
 import { Compiler } from "../compiler.js";
-import { MacroDeclaration, MacroType, Module } from "../module.js";
+import { Export, MacroDeclaration, MacroType, Module } from "../module.js";
 import { Pass } from "./pass.js";
 
 export class ModuleResolver implements Pass<ModuleMap> {
@@ -27,17 +27,25 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		return modules;
 	}
 
+
 	private linkModules(
 		modules: ModuleMap,
 		compilerOptions: ts.CompilerOptions
 	): void {
+		const modulesByFile = new Map<string, Module>();
+
+		for (const [path, module] of Object.entries(modules)) {
+			modulesByFile.set(path, module);
+			modulesByFile.set(module.fullPath, module);
+		}
+
 		for (const module of Object.values(modules)) {
 			for (const imp of module.imports) {
 				if (imp.path === "@ion/comptime") {
 					continue;
 				}
 
-				imp.module = modules[imp.absolutePath];
+				imp.module = modulesByFile.get(imp.absolutePath);
 			}
 
 			for (const reExport of module.reExports) {
@@ -51,10 +59,28 @@ export class ModuleResolver implements Pass<ModuleMap> {
 				const absolutePath = result.resolvedModule?.resolvedFileName;
 
 				if (absolutePath) {
-					reExport.module = modules[absolutePath];
+					reExport.module = modulesByFile.get(absolutePath);
+				}
+			}
+
+			for (const exported of module.exports) {
+				for (const declaration of exported.target.declarations ?? []) {
+					const sourceFile = declaration.getSourceFile();
+					const targetModule = modulesByFile.get(sourceFile.fileName);
+
+					if (targetModule) {
+						exported.targetModule = targetModule;
+						break;
+					}
 				}
 			}
 		}
+	}
+
+	public isComptimeExport(exported: Export): boolean {
+		return exported.targetModule?.getComptimeDeclaration(
+			exported.target
+		) !== undefined;
 	}
 
 	public resolve(

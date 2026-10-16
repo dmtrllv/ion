@@ -167,6 +167,14 @@ export class Module {
 	public get fullPath(): string {
 		return this.sourceFile.fileName;
 	}
+
+	public getComptimeDeclaration(target: ts.Symbol): MacroDeclaration | undefined {
+		return this.macroDeclarations.find(declaration => target.declarations?.includes(declaration.statement));
+	}
+
+	public getExport(name: string): Export | undefined {
+		return this.exports.find(exported => exported.name === name);
+	}
 }
 
 export type MacroDeclaration = {
@@ -195,6 +203,8 @@ export type Export = {
 	readonly symbol: ts.Symbol;
 	/** Original symbol after resolving TypeScript aliases. */
 	readonly target: ts.Symbol;
+	/** Module containing the original declaration, when available. */
+	targetModule?: Module;
 };
 
 export type ReExport = {

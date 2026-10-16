@@ -45,3 +45,6 @@ Complete one section at a time. Discuss the design before implementing each step
 - [ ] Ensure imports and re-exports reference the correct `Module` instances.
 
 **Goal:** Given any imported or re-exported symbol, determine its original declaration, owning module, and whether it is a comptime declaration.
+
+## As last:
+`export *` recursive symbol resolution

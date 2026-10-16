@@ -1,0 +1,17 @@
+{
+	"name": "@ion/compiler",
+	"version": "0.0.1",
+	"main": "dist/index.js",
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsc -w",
+		"test": "cd test && node .."
+	},
+	"author": "Dimitri Lilov",
+	"type": "module",
+	"license": "MIT",
+	"dependencies": {
+		"@ion/comptime": "file:../comptime",
+		"typescript": "6.0.3"
+	}
+}

@@ -1,0 +1,20 @@
+{
+	"name": "@ion/comptime",
+	"version": "0.0.1",
+	"main": "dist/index.js",
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsc -w"
+	},
+	"author": "Dimitri Lilov",
+	"type": "module",
+	"license": "MIT",
+	"dependencies": {
+		"typescript": "^6.0.3"
+	},
+	"exports": {
+		".": {
+			"types": "./types/index.d.ts"
+		}
+	}
+}

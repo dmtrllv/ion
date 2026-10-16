@@ -1,0 +1,7 @@
+This gives you a clean architecture:
+	☐ 1. Parse the module and collect its imports.
+	☐ 2. Resolve imported symbols to their actual module exports.
+	☐ 3. Identify compile-time operations and their callbacks.
+	☐ 4. Execute those callbacks in the compile-time environment.
+	☐ 5. Apply generated code or transformations to the compilation graph.
+	☐ 6. Run semantic analysis and type-check the resulting program.

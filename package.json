@@ -1,0 +1,15 @@
+{
+	"name": "@ion/ion",
+	"author": "Dimitri Lilov",
+	"license": "MIT",
+	"workspaces": [
+		"signal",
+		"compiler",
+		"comptime"
+	],
+	"devDependencies": {
+		"@tsconfig/strictest": "^2.0.8",
+		"@types/node": "^26.6.5",
+		"typescript": "^6.0.3"
+	}
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { cwd } from "node:process";
+import { argv, cwd } from "node:process";
 import { readFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -9,6 +9,7 @@ import { ModuleResolver } from "./passes/resolver.js";
 import { ModuleTransformer } from "./passes/transformer.js";
 import { ComptimeEvaluator } from "./passes/evaluator.js";
 import { ComptimeWriter } from "./passes/writer.js";
+import { ComptimeManifestWriter } from "./passes/manifest.js";
 
 const root = cwd();
 const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf-8"));
@@ -18,6 +19,8 @@ const comptimeOutput = resolve(
 	pkg?.ion?.comptime?.output ?? "./comptime",
 );
 
+const isLibBuild = argv.includes("--lib");
+
 mkdirSync(comptimeOutput, { recursive: true });
 
 Compiler.run(root, async (compiler) => {
@@ -25,4 +28,6 @@ Compiler.run(root, async (compiler) => {
 	const transformedModules = await compiler.run(ModuleTransformer, modules, comptimeOutput,);
 	const comptimeResults = await compiler.run(ComptimeEvaluator, modules, transformedModules);
 	await compiler.run(ComptimeWriter, comptimeResults);
+	if (isLibBuild)
+		await compiler.run(ComptimeManifestWriter, modules, transformedModules, pkg);
 });

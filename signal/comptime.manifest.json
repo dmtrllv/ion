@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "exports": {
+    "signal": {
+      "kind": "comptime.fn",
+      "module": "comptime-build/signal.js",
+      "name": "signal"
+    }
+  }
+}

@@ -46,6 +46,10 @@ export class Compiler {
 		return this.#program.getCompilerOptions();
 	}
 
+	public get program(): ts.Program {
+		return this.#program;
+	}
+
 	private constructor(root: string, config: ts.ParsedCommandLine) {
 		this.root = root;
 		this.sourceRoot = config.options.rootDir ?? root;

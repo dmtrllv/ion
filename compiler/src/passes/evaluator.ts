@@ -20,17 +20,18 @@ type ComptimeFn = {
 type RuntimeModule = Record<string, unknown>;
 
 export class ComptimeEvaluator
-	implements Pass<void, [ModuleMap, TransformedModule[]]> {
-	public readonly results = new Map<ts.CallExpression, unknown>();
+	implements Pass<Map<ts.CallExpression, ts.Expression>, [ModuleMap, TransformedModule[]]> {
+	//public readonly results = new Map<ts.CallExpression, ts.Expression>();
 
 	public async run(
 		compiler: Compiler,
 		modules: ModuleMap,
 		transformedModules: TransformedModule[],
-	): Promise<void> {
+	): Promise<Map<ts.CallExpression, ts.Expression>> {
 		const runtimeModules = await this.loadRuntimeModules(
 			transformedModules,
 		);
+		const results = new Map<ts.CallExpression, ts.Expression>();
 
 		this.validateComptimeValues(modules, runtimeModules);
 
@@ -40,8 +41,11 @@ export class ComptimeEvaluator
 				transformed.module,
 				modules,
 				runtimeModules,
+				results
 			);
 		}
+
+		return results;
 	}
 
 	private async loadRuntimeModules(
@@ -99,6 +103,7 @@ export class ComptimeEvaluator
 		module: Module,
 		modules: ModuleMap,
 		runtimeModules: Map<Module, RuntimeModule>,
+		results: Map<ts.CallExpression, ts.Expression>
 	): Promise<void> {
 		for (const call of this.findCallSites(module)) {
 			const symbol = this.resolveCallSymbol(compiler, call);
@@ -154,7 +159,7 @@ export class ComptimeEvaluator
 				);
 			}
 
-			this.results.set(call.node, result);
+			results.set(call.node, result);
 
 			console.log("Comptime evaluated:", {
 				module: module.path,

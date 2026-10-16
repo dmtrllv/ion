@@ -8,6 +8,7 @@ import { Compiler } from "./compiler.js";
 import { ModuleResolver } from "./passes/resolver.js";
 import { ModuleTransformer } from "./passes/transformer.js";
 import { ComptimeEvaluator } from "./passes/evaluator.js";
+import { ComptimeWriter } from "./passes/writer.js";
 
 const root = cwd();
 const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf-8"));
@@ -27,5 +28,6 @@ Compiler.run(root, async (compiler) => {
 		comptimeOutput,
 	);
 
-	await compiler.run(ComptimeEvaluator, modules, transformedModules);
+	const comptimeResults = await compiler.run(ComptimeEvaluator, modules, transformedModules);
+	await compiler.run(ComptimeWriter, transformedModules, comptimeResults);
 });

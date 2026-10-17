@@ -4,6 +4,7 @@
     "signal": {
       "kind": "comptime.fn",
       "module": "comptime-build/signal.js",
+      "runtimeModule": "dist/signal.js",
       "name": "signal",
       "source": "src/signal.ts"
     }

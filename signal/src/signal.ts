@@ -1,9 +1,7 @@
 import { Comptime, comptime } from "@ion/comptime";
 
 class SignalImpl<T> implements Signal<T> {
-	// @ts-expect-error
 	readonly #id: number;
-	// @ts-expect-error
 	readonly #value: T;
 
 	public constructor(id: number, value: T) {
@@ -26,6 +24,13 @@ class SignalImpl<T> implements Signal<T> {
 	public readonly update!: (closure: (value: T) => any) => T;
 
 	public readonly subscribe!: (observer: (value: T) => any) => Unsubscriber;
+
+	public readonly toJSON = () => {
+		return {
+			id: this.#id,
+			value: this.#value,
+		}
+	}
 }
 
 export interface Signal<T> {
@@ -34,6 +39,7 @@ export interface Signal<T> {
 	readonly set: (value: T) => T;
 	readonly update: (closure: (value: T) => any) => T;
 	readonly subscribe: (observer: (value: T) => any) => Unsubscriber;
+	readonly toJSON: () => { readonly id: number, readonly value: Readonly<T> };
 }
 
 export type Unsubscriber = () => void;

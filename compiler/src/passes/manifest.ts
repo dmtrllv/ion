@@ -17,6 +17,7 @@ export type ComptimeManifest = {
 export type ComptimeManifestExport = {
 	readonly kind: MacroType;
 	readonly module: string;
+	readonly runtimeModule: string;
 	readonly name: string;
 	readonly source: string;
 };
@@ -81,6 +82,10 @@ export class ComptimeManifestWriter
 				module: relative(compiler.root, transformed.path)
 					.split(sep)
 					.join("/"),
+				runtimeModule: this.resolveRuntimeModule(
+					compiler.root,
+					declarationModule.fullPath,
+				),
 				name: declaration.statement.name.getText(
 					declarationModule.sourceFile,
 				),
@@ -102,7 +107,92 @@ export class ComptimeManifestWriter
 		);
 	}
 
+	private resolveRuntimeModule(
+		root: string,
+		sourceFilePath: string,
+	): string {
+		const configPath = ts.findConfigFile(
+			root,
+			ts.sys.fileExists,
+			"tsconfig.json",
+		);
 
+		if (!configPath) {
+			throw new Error(`Could not find tsconfig.json for "${root}".`);
+		}
+
+		const config = ts.getParsedCommandLineOfConfigFile(
+			configPath,
+			{},
+			{
+				...ts.sys,
+				onUnRecoverableConfigFileDiagnostic(diagnostic) {
+					throw new Error(
+						ts.flattenDiagnosticMessageText(
+							diagnostic.messageText,
+							"\n",
+						),
+					);
+				},
+			},
+		);
+
+		if (!config) {
+			throw new Error(`Could not parse "${configPath}".`);
+		}
+
+		const sourceRoot = resolve(
+			root,
+			config.options.rootDir ??
+			this.getCommonSourceDirectory(config.fileNames, root),
+		);
+
+		const sourcePath = resolve(sourceFilePath);
+		const relativeSource = relative(sourceRoot, sourcePath);
+
+		if (
+			relativeSource === ".." ||
+			relativeSource.startsWith(`..${sep}`) ||
+			isAbsolute(relativeSource)
+		) {
+			throw new Error(
+				`Source "${sourcePath}" is outside rootDir "${sourceRoot}".`,
+			);
+		}
+
+		const outputPath = config.options.outDir
+			? resolve(
+				root,
+				config.options.outDir,
+				relativeSource.replace(
+					/\.(tsx?|mts|cts)$/,
+					extension => {
+						switch (extension) {
+							case ".mts": return ".mjs";
+							case ".cts": return ".cjs";
+							default: return ".js";
+						}
+					},
+				),
+			)
+			: resolve(
+				sourceRoot,
+				relativeSource.replace(
+					/\.(tsx?|mts|cts)$/,
+					extension => {
+						switch (extension) {
+							case ".mts": return ".mjs";
+							case ".cts": return ".cjs";
+							default: return ".js";
+						}
+					},
+				),
+			);
+
+		return relative(root, outputPath)
+			.split(sep)
+			.join("/");
+	}
 
 	private resolvePackageEntry(root: string, pkg: PackageJson): string {
 		const configPath = ts.findConfigFile(

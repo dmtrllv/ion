@@ -22,6 +22,7 @@ type ComptimeManifest = {
 		readonly module: string;
 		readonly name: string;
 		readonly source?: string;
+		readonly runtimeModule?: string;
 	}>;
 };
 
@@ -292,6 +293,7 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 	}
 
 
+
 	private resolveReference(
 		compiler: Compiler,
 		consumer: ts.SourceFile,
@@ -321,66 +323,96 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 			);
 		}
 
-		let targetSourceFile = declaration.getSourceFile();
+		const declarationSourceFile = declaration.getSourceFile();
+		let targetSourceFile = declarationSourceFile;
 		let resolvedSymbol = targetSymbol;
+		let targetModulePath: string;
+		const targetPackage = this.findPackageRoot(
+			declarationSourceFile.fileName,
+		);
 
-		if (targetSourceFile.isDeclarationFile) {
-			const targetPackage = this.findPackageRoot(
-				targetSourceFile.fileName,
-			);
+		if (declarationSourceFile.isDeclarationFile) {
+			// External package: use its manifest to find the runtime module.
+			const declarationRelativePath = relative(
+				targetPackage.root,
+				resolve(declarationSourceFile.fileName),
+			).replace(/\\/g, "/");
+
+			const declarationStem = declarationRelativePath
+				.replace(/^types\//, "src/")
+				.replace(/\.d\.(?:ts|mts|cts)$/, match => {
+					switch (match) {
+						case ".d.mts": return ".mts";
+						case ".d.cts": return ".cts";
+						default: return ".ts";
+					}
+				});
 
 			const manifestEntry = Object.values(
 				targetPackage.manifest.exports,
-			).find(
-				entry => entry.name === targetSymbol.getName(),
+			).find(entry =>
+				entry.source === declarationStem ||
+				entry.source === declarationRelativePath,
 			);
 
-			if (!manifestEntry?.source) {
+			if (!manifestEntry?.runtimeModule) {
 				throw new RefError(
-					`Comptime reference "${name}" resolves to a declaration file ` +
-					`("${targetSourceFile.fileName}"), but no matching source entry ` +
-					`exists in "${targetPackage.root}/comptime.manifest.json".`,
+					`Comptime reference "${name}" resolves to declaration file ` +
+					`"${declarationSourceFile.fileName}", but no matching ` +
+					`runtimeModule exists in ` +
+					`"${targetPackage.root}/comptime.manifest.json".`,
 				);
 			}
 
-			const sourcePath = resolve(
+			targetModulePath = resolve(
 				targetPackage.root,
-				manifestEntry.source,
+				manifestEntry.runtimeModule,
 			);
 
-			const sourceFile = compiler.program.getSourceFile(sourcePath);
+			// Keep declaration-based symbol identity; do not require external
+			// implementation source files to be part of the consumer's program.
+			const moduleSymbol = compiler.typeChecker.getSymbolAtLocation(
+				declarationSourceFile,
+			);
 
-			if (!sourceFile || sourceFile.isDeclarationFile) {
-				throw new RefError(
-					`Could not resolve the runtime source for comptime reference ` +
-					`"${name}" from "${sourcePath}". Ensure that the source file ` +
-					`is included in the compiler program.`,
-				);
-			}
-
-			targetSourceFile = sourceFile;
-
-			const sourceModuleSymbol =
-				compiler.typeChecker.getSymbolAtLocation(targetSourceFile);
-
-			const sourceExport = sourceModuleSymbol
-				? compiler.typeChecker
-					.getExportsOfModule(sourceModuleSymbol)
-					.find(symbol =>
-						symbol.getName() === manifestEntry.name,
-					)
+			const exported = moduleSymbol
+				? compiler.typeChecker.getExportsOfModule(moduleSymbol).find(
+					symbol =>
+						this.resolveAlias(compiler, symbol) === targetSymbol,
+				)
 				: undefined;
 
-			if (!sourceExport) {
+			if (!exported) {
 				throw new RefError(
-					`Manifest entry "${manifestEntry.name}" is not exported by ` +
-					`"${targetSourceFile.fileName}".`,
+					`Comptime reference "${name}" must refer to an exported value. ` +
+					`Its declaration is in "${declarationSourceFile.fileName}".`,
 				);
 			}
 
-			resolvedSymbol = this.resolveAlias(compiler, sourceExport);
+			const consumerPackage = this.findPackageRoot(consumer.fileName);
+			const consumerOutputPath = this.getOutputModulePath(
+				consumerPackage,
+				consumer,
+			);
+
+			let moduleSpecifier = relative(
+				dirname(consumerOutputPath),
+				targetModulePath,
+			).replace(/\\/g, "/");
+
+			if (!moduleSpecifier.startsWith(".")) {
+				moduleSpecifier = `./${moduleSpecifier}`;
+			}
+
+			return {
+				sourceFile: declarationSourceFile,
+				exportName: exported.name,
+				localName: name,
+				moduleSpecifier,
+			};
 		}
 
+		// Same project: map the actual source module to its emitted JS module.
 		const moduleSymbol = compiler.typeChecker.getSymbolAtLocation(
 			targetSourceFile,
 		);
@@ -399,18 +431,13 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 			);
 		}
 
-		const targetPackage = this.findPackageRoot(
-			targetSourceFile.fileName,
-		);
-
-		const targetModulePath = this.getRuntimeOutputModule(
+		targetModulePath = this.getRuntimeOutputModule(
 			targetPackage,
 			targetSourceFile,
 			resolvedSymbol,
 		);
 
 		const consumerPackage = this.findPackageRoot(consumer.fileName);
-
 		const consumerOutputPath = this.getOutputModulePath(
 			consumerPackage,
 			consumer,
@@ -432,6 +459,7 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 			moduleSpecifier,
 		};
 	}
+
 
 
 	private getDeclarationSourceFile(

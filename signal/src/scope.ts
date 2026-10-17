@@ -1,5 +1,5 @@
 import { GlobalScope } from "./global-scope.js";
-import { ReactiveObserver, ReactiveSource, Unsubscriber } from "./reactive.js";
+import { ReactiveObserver, ReactiveSource, Unsubscriber, withObserver } from "./reactive.js";
 import { Slot, SlotData } from "./slot.js";
 
 export type ScopeClosure<T> = () => T;
@@ -13,7 +13,8 @@ export class Scope<T> implements ReactiveObserver {
 	readonly #closure: ScopeClosure<T>;
 	readonly #eventHandlers: ScopeEventHandler[] = [];
 	readonly #slots: Record<number, Slot> = {};
-
+	readonly #dependencies = new Set<ReactiveSource>();
+	#nextDependencies: Set<ReactiveSource> | null = null;
 	#isInitialized = false;
 	#isInvalidated = false;
 
@@ -36,7 +37,11 @@ export class Scope<T> implements ReactiveObserver {
 
 	// @internal
 	public track(source: ReactiveSource): void {
+		if (this.#nextDependencies === null)
+			return;
 
+		this.#nextDependencies.add(source);
+		source.addObserver(this);
 	}
 
 	public flush(): void {
@@ -44,7 +49,44 @@ export class Scope<T> implements ReactiveObserver {
 	}
 
 	public run(): T {
-		throw new Error("todo");
+		const previousScope = activeScope;
+
+		const previousDependencies = this.#dependencies;
+		const nextDependencies = new Set<ReactiveSource>();
+
+		activeScope = this;
+		
+		this.#nextDependencies = nextDependencies;
+
+		try {
+			const result = withObserver(this, this.#closure);
+
+			for (const source of previousDependencies) {
+				if (!nextDependencies.has(source))
+					source.removeObserver(this);
+			}
+
+			this.#dependencies.clear();
+
+			for (const source of nextDependencies) {
+				this.#dependencies.add(source);
+			}
+
+			this.#isInitialized = true;
+			this.#isInvalidated = false;
+
+			return result;
+		} catch (error) {
+			for (const source of nextDependencies) {
+				if (!previousDependencies.has(source))
+					source.removeObserver(this);
+			}
+
+			throw error;
+		} finally {
+			this.#nextDependencies = null;
+			activeScope = previousScope;
+		}
 	}
 
 	// @internal
@@ -77,18 +119,18 @@ export type ScopeEvent<T extends ScopeEventType> = {
 	readonly data: ScopeEvents[T];
 };
 
-const Invalidate = "INVALIDATE" as const;
+const Invalidated = "INVALIDATED" as const;
 const Pending = "PENDING" as const;
 
 export const ScopeEvent = {
-	Invalidate,
+	Invalidate: Invalidated,
 	Pending,
 } as const;
 
 export type ScopeEventType = (typeof ScopeEvent)[keyof typeof ScopeEvent];
 
 type ScopeEvents = {
-	[Invalidate]: {},
+	[Invalidated]: {},
 	[Pending]: {},
 };
 

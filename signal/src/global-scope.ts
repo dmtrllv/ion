@@ -24,10 +24,12 @@ export class GlobalScope implements ReactiveObserver {
 		throw new Error("Method not implemented.");
 	}
 
+	// @internal
 	public flush(): void {
 		throw new Error("Method not implemented.");
 	}
 
+	// @internal
 	public run(): void {
 		throw new Error("Method not implemented.");
 	}

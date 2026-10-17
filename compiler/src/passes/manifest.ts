@@ -1,6 +1,6 @@
 
 import * as ts from "typescript";
-import { relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { writeFileSync } from "node:fs";
 
 import { Compiler } from "../compiler.js";
@@ -102,7 +102,93 @@ export class ComptimeManifestWriter
 		);
 	}
 
+
+
 	private resolvePackageEntry(root: string, pkg: PackageJson): string {
+		const configPath = ts.findConfigFile(
+			root,
+			ts.sys.fileExists,
+			"tsconfig.json",
+		);
+
+		if (!configPath) {
+			throw new Error(
+				`Could not find tsconfig.json for package "${root}".`,
+			);
+		}
+
+		const config = ts.getParsedCommandLineOfConfigFile(
+			configPath,
+			{},
+			{
+				...ts.sys,
+				onUnRecoverableConfigFileDiagnostic(diagnostic) {
+					throw new Error(
+						ts.flattenDiagnosticMessageText(
+							diagnostic.messageText,
+							"\n",
+						),
+					);
+				},
+			},
+		);
+
+		if (!config) {
+			throw new Error(`Could not parse TypeScript config "${configPath}".`);
+		}
+
+		const entry = this.resolvePackageEntrySpecifier(pkg);
+
+		if (!entry) {
+			throw new Error(
+				'Could not determine the package entry point from package.json ("exports"."." or "main").',
+			);
+		}
+
+		const entryPath = resolve(root, entry);
+		const options = config.options;
+
+		const outputRoots = [
+			options.outDir,
+			options.declarationDir,
+		].filter((path): path is string => path !== undefined);
+
+		for (const outputRoot of outputRoots) {
+			const absoluteOutputRoot = resolve(root, outputRoot);
+			const relativeEntry = relative(absoluteOutputRoot, entryPath);
+
+			// Only map entries that are actually inside this output directory.
+			if (
+				relativeEntry === ".." ||
+				relativeEntry.startsWith(`..${sep}`) ||
+				isAbsolute(relativeEntry)
+			) {
+				continue;
+			}
+
+			const sourceRoot = options.rootDir
+				? resolve(root, options.rootDir)
+				: this.getCommonSourceDirectory(config.fileNames, root);
+
+			const sourcePath = resolve(
+				sourceRoot,
+				relativeEntry.replace(
+					/\.(?:d\.)?(?:m|c)?js$/,
+					".ts",
+				),
+			);
+
+			return sourcePath;
+		}
+
+		// If the entry is already source-oriented, resolve it directly.
+		const sourcePath = entryPath.replace(/\.js$/, ".ts");
+		return resolve(root, sourcePath);
+	}
+
+	private resolvePackageEntrySpecifier(
+		pkg: PackageJson,
+	): string | undefined {
 		const exports = pkg.exports;
 
 		let entry: string | undefined;
@@ -113,19 +199,7 @@ export class ComptimeManifestWriter
 			entry = this.findImportEntry(exports["."]);
 		}
 
-		entry ??= pkg.main;
-
-		if (!entry) {
-			throw new Error(
-				'Could not determine the package entry point from package.json ("exports"."." or "main").',
-			);
-		}
-
-		// Package exports commonly point to JavaScript while the compiler
-		// operates on the corresponding TypeScript source.
-		entry = entry.replace(/\.js$/, ".ts");
-
-		return resolve(root, entry);
+		return entry ?? pkg.main;
 	}
 
 	private findImportEntry(value: unknown): string | undefined {
@@ -149,6 +223,38 @@ export class ComptimeManifestWriter
 
 		return undefined;
 	}
+
+	private getCommonSourceDirectory(
+		files: readonly string[],
+		root: string,
+	): string {
+		const paths = files.map(file => resolve(file));
+		if (paths.length === 0) {
+			return root;
+		}
+
+		const first = paths[0]!.split(sep);
+		let common = first.slice(0, -1);
+
+		for (const path of paths.slice(1)) {
+			const parts = path.split(sep);
+			let index = 0;
+
+			while (
+				index < common.length &&
+				index < parts.length &&
+				common[index] === parts[index]
+			) {
+				index++;
+			}
+
+			common = common.slice(0, index);
+		}
+
+		return common.join(sep) || root;
+	}
+
+
 
 	private getEffectiveKind(
 		kind: MacroType,

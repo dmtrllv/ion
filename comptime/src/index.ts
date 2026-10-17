@@ -112,9 +112,9 @@ const comptimeWrapper = <T>(comptimeClosure: (ctx: Comptime.Context) => T): T =>
 
 const comptimeFn = <R, Args extends any[]>(val: (ctx: Comptime.Context, ...args: ComptimeArgs<Args>) => Comptime.Expr<R>): ((...args: Args) => R) => {
 	const wrapper = (() => {
-		throw new Error(
+		console.log(new Error(
 			"comptime.fn must only be invoked by the compiler",
-		);
+		));
 	}) as ((...args: Args) => R) & ComptimeFn & any;
 
 	wrapper[comptimeFnKey] = (args: any) => {

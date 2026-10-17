@@ -1,8 +1,8 @@
 import * as ts from "typescript";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { Pass } from "./pass.js";
 import { Compiler } from "../compiler.js";
-import { readFileSync } from "node:fs";
 
 type ComptimeReference = ts.Identifier & {
 	readonly __ion_comptime_ref__?: string;
@@ -21,6 +21,7 @@ type ComptimeManifest = {
 		readonly kind: string;
 		readonly module: string;
 		readonly name: string;
+		readonly source?: string;
 	}>;
 };
 
@@ -31,6 +32,45 @@ type PackageInfo = {
 };
 
 export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Expression>]> {
+	private getRootDir(pkg: PackageInfo): string {
+		const configPath = ts.findConfigFile(
+			pkg.root,
+			ts.sys.fileExists,
+			"tsconfig.json",
+		);
+
+		if (!configPath) {
+			return pkg.root;
+		}
+
+		const config = ts.getParsedCommandLineOfConfigFile(
+			configPath,
+			{},
+			{
+				...ts.sys,
+				onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
+					throw new RefError(
+						ts.flattenDiagnosticMessageText(
+							diagnostic.messageText,
+							ts.sys.newLine,
+						),
+					);
+				},
+			},
+		);
+
+		if (!config) {
+			throw new RefError(
+				`Could not parse TypeScript configuration "${configPath}".`,
+			);
+		}
+
+		return resolve(
+			pkg.root,
+			config.options.rootDir ?? ".",
+		);
+	}
+
 	public run(compiler: Compiler, results: Map<ts.CallExpression, ts.Expression>,): void {
 		const emitResult = compiler.program.emit(undefined, undefined, undefined, false, { before: [this.transformer(compiler, results)] });
 
@@ -319,38 +359,129 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 		const sourceRelativePath = relative(
 			pkg.root,
 			sourceFile.fileName,
-		).replace(/\\/g, "/");
+		).split(sep).join("/");
 
-		const entry = Object.values(pkg.manifest.exports).find(item => {
-			const manifestPath = item.module.replace(/\\/g, "/");
+		const outputRelativePath = relative(
+			pkg.root,
+			pkg.comptimeOutput,
+		).split(sep).join("/");
 
-			const expectedModule = resolve(
+		const entry = Object.values(pkg.manifest.exports).find((item) => {
+			const manifestPath = item.module
+				.replace(/\\/g, "/");
+
+			const normalizedModulePath = resolve(
 				pkg.root,
 				manifestPath,
 			);
 
-			const sourceName = targetSymbol.getName();
+			const relativeModulePath = relative(
+				pkg.root,
+				normalizedModulePath,
+			).split(sep).join("/");
+
+			// Manifest entries must point inside the comptime output directory.
+			if (
+				relativeModulePath === ".." ||
+				relativeModulePath.startsWith("../") ||
+				!(
+					relativeModulePath === outputRelativePath ||
+					relativeModulePath.startsWith(`${outputRelativePath}/`)
+				)
+			) {
+				return false;
+			}
+
+			// Prefer the explicit source path when available.
+			if (item.source) {
+				return (
+					item.source.replace(/\\/g, "/") === sourceRelativePath &&
+					item.name === targetSymbol.getName()
+				);
+			}
+
+			// Compatibility with older manifests without a source field.
+			const generatedName = manifestPath
+				.split("/")
+				.pop()
+				?.replace(/\.js$/, "");
+
+			const sourceName = sourceRelativePath
+				.split("/")
+				.pop()
+				?.replace(/\.(tsx?|mts|cts)$/, "");
 
 			return (
-				relative(pkg.root, expectedModule).startsWith(
-					relative(pkg.root, pkg.comptimeOutput).replace(/\\/g, "/") + "/",
-				) &&
-				manifestPath.endsWith(
-					sourceRelativePath.replace(/\.(tsx?|mts|cts)$/, ".js"),
-				) &&
-				item.name === sourceName
+				item.name === targetSymbol.getName() &&
+				generatedName === sourceName
 			);
 		});
 
-		if (!entry) {
+		if (entry) {
+			return resolve(pkg.root, entry.module);
+		}
+
+		return this.getRuntimeModule(
+			pkg,
+			sourceFile,
+			targetSymbol,
+		);
+	}
+
+	private getRuntimeModule(
+		pkg: PackageInfo,
+		sourceFile: ts.SourceFile,
+		targetSymbol: ts.Symbol,
+	): string {
+		const rootDir = this.getRootDir(pkg);
+		const sourcePath = resolve(sourceFile.fileName);
+
+		const sourceRelativePath = relative(
+			rootDir,
+			sourcePath,
+		);
+
+		if (
+			sourceRelativePath === ".." ||
+			sourceRelativePath.startsWith(`..${sep}`) ||
+			resolve(rootDir, sourceRelativePath) !== sourcePath
+		) {
 			throw new RefError(
-				`Comptime reference "${targetSymbol.getName()}" from ` +
-				`"${sourceFile.fileName}" was not found in ` +
-				`"${resolve(pkg.root, "comptime.manifest.json")}".`,
+				`Comptime reference "${targetSymbol.getName()}" is outside ` +
+				`the package rootDir "${rootDir}".`,
 			);
 		}
 
-		return resolve(pkg.root, entry.module);
+		const extension = /\.([cm]?tsx?)$|\.([cm]?ts)$/.exec(
+			sourceRelativePath,
+		);
+
+		if (!extension) {
+			throw new RefError(
+				`Cannot determine the generated JavaScript path for ` +
+				`"${sourcePath}".`,
+			);
+		}
+
+		const generatedRelativePath = sourceRelativePath.replace(
+			/\.(tsx?|mts|cts)$/,
+			".js",
+		);
+
+		const generatedModulePath = resolve(
+			pkg.comptimeOutput,
+			generatedRelativePath,
+		);
+
+		if (!existsSync(generatedModulePath)) {
+			throw new RefError(
+				`Generated runtime module for comptime reference ` +
+				`"${targetSymbol.getName()}" was not found at ` +
+				`"${generatedModulePath}". Build the dependency with Ion first.`,
+			);
+		}
+
+		return generatedModulePath;
 	}
 
 	private getDeclarationSourceFile(
@@ -481,6 +612,7 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 		});
 	}
 
+
 	private findPackageRoot(sourcePath: string): PackageInfo {
 		let directory = dirname(sourcePath);
 
@@ -497,9 +629,16 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 					"comptime.manifest.json",
 				);
 
-				const manifest = JSON.parse(
-					readFileSync(manifestPath, "utf-8"),
-				) as ComptimeManifest;
+				let manifest: ComptimeManifest = {
+					version: 1,
+					exports: {},
+				};
+
+				if (existsSync(manifestPath)) {
+					manifest = JSON.parse(
+						readFileSync(manifestPath, "utf-8"),
+					) as ComptimeManifest;
+				}
 
 				return {
 					root: directory,
@@ -523,14 +662,14 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 
 			if (parent === directory) {
 				throw new RefError(
-					`Could not find package.json and comptime manifest for ` +
-					`"${sourcePath}". Build the dependency with Ion first.`,
+					`Could not find package.json for "${sourcePath}".`,
 				);
 			}
 
 			directory = parent;
 		}
 	}
+
 }
 
 export class RefError extends Error {

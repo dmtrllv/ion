@@ -7,3 +7,9 @@ Bugs:
 
 
 1. When a comptime.fn is evaluated to a symbol binding, that binging must be available at the placed the comptime.fn is used.
+
+NOTE:
+	findExternalComptimeFunction() currently uses the local declaration name to match the manifest. 
+	That handles your signal export and the current manifest format. For more general support of 
+	renamed exports, multiple public exports pointing to the same declaration, and package subpath exports, 
+	the manifest should eventually record the public export name separately from the local declaration name and source path.

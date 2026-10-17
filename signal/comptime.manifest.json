@@ -4,7 +4,8 @@
     "signal": {
       "kind": "comptime.fn",
       "module": "comptime-build/signal.js",
-      "name": "signal"
+      "name": "signal",
+      "source": "src/signal.ts"
     }
   }
 }

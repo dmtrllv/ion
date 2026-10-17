@@ -5,6 +5,8 @@ import { Module } from "../module.js";
 import { Pass } from "./pass.js";
 import { ModuleMap } from "./resolver.js";
 import { TransformedModule } from "./transformer.js";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 export type ComptimeCall = {
 	readonly module: Module;
@@ -17,8 +19,25 @@ type ComptimeFn = {
 
 type RuntimeModule = Record<string, unknown>;
 
-export class ComptimeEvaluator
-	implements Pass<Map<ts.CallExpression, ts.Expression>, [ModuleMap, TransformedModule[]]> {
+type ComptimeManifestExport = {
+	readonly kind: string;
+	readonly module: string;
+	readonly name: string;
+	readonly source?: string;
+};
+
+type ComptimeManifest = {
+	readonly version: number;
+	readonly exports: Record<string, ComptimeManifestExport>;
+};
+
+type ExternalComptimeFunction = {
+	readonly packageRoot: string;
+	readonly entry: ComptimeManifestExport;
+};
+
+export class ComptimeEvaluator implements Pass<Map<ts.CallExpression, ts.Expression>, [ModuleMap, TransformedModule[]]> {
+	private readonly externalRuntimeModules = new Map<string, Promise<RuntimeModule>>();
 
 	public async run(
 		compiler: Compiler,
@@ -43,6 +62,97 @@ export class ComptimeEvaluator
 		}
 
 		return results;
+	}
+
+	private findExternalComptimeFunction(
+		symbol: ts.Symbol,
+	): ExternalComptimeFunction | undefined {
+		const declaration = symbol.valueDeclaration ??
+			symbol.declarations?.[0];
+
+		if (!declaration || declaration.getSourceFile().isDeclarationFile) {
+			return undefined;
+		}
+
+		const sourcePath = resolve(declaration.getSourceFile().fileName);
+		let directory = dirname(sourcePath);
+
+		while (true) {
+			try {
+				readFileSync(resolve(directory, "package.json"), "utf-8");
+
+				const manifest = JSON.parse(
+					readFileSync(
+						resolve(directory, "comptime.manifest.json"),
+						"utf-8",
+					),
+				) as ComptimeManifest;
+
+				const sourceRelativePath = sourcePath
+					.slice(directory.length + 1)
+					.replace(/\\/g, "/");
+
+				const entry = Object.values(manifest.exports).find(item => {
+					if (item.kind !== "comptime.fn") {
+						return false;
+					}
+
+					// New manifests use an exact source path. The fallback
+					// supports existing manifests that predate the source field.
+					if (item.source) {
+						return item.source === sourceRelativePath &&
+							item.name === symbol.getName();
+					}
+
+					const generatedName = item.module
+						.replace(/\\/g, "/")
+						.split("/")
+						.pop()
+						?.replace(/\.js$/, "");
+
+					const sourceName = sourceRelativePath
+						.split("/")
+						.pop()
+						?.replace(/\.(tsx?|mts|cts)$/, "");
+
+					return item.name === symbol.getName() &&
+						generatedName === sourceName;
+				});
+
+				return entry
+					? { packageRoot: directory, entry }
+					: undefined;
+			} catch (error) {
+				if (
+					!(error instanceof Error) ||
+					!("code" in error) ||
+					(error.code !== "ENOENT" && error.code !== "ENOTDIR")
+				) {
+					throw error;
+				}
+			}
+
+			const parent = dirname(directory);
+
+			if (parent === directory) {
+				return undefined;
+			}
+
+			directory = parent;
+		}
+	}
+
+	private async loadExternalRuntimeModule(
+		path: string,
+	): Promise<RuntimeModule> {
+		let pending = this.externalRuntimeModules.get(path);
+
+		if (!pending) {
+			pending = import(pathToFileURL(path).href) as Promise<RuntimeModule>;
+			this.externalRuntimeModules.set(path, pending);
+		}
+
+		return pending;
 	}
 
 	private async loadRuntimeModules(transformedModules: TransformedModule[]): Promise<Map<Module, RuntimeModule>> {
@@ -87,7 +197,13 @@ export class ComptimeEvaluator
 		}
 	}
 
-	private async evaluate(compiler: Compiler, module: Module, modules: ModuleMap, runtimeModules: Map<Module, RuntimeModule>, results: Map<ts.CallExpression, ts.Expression>): Promise<void> {
+	private async evaluate(
+		compiler: Compiler,
+		module: Module,
+		modules: ModuleMap,
+		runtimeModules: Map<Module, RuntimeModule>,
+		results: Map<ts.CallExpression, ts.Expression>,
+	): Promise<void> {
 		for (const call of this.findCallSites(module)) {
 			const symbol = this.resolveCallSymbol(compiler, call);
 
@@ -95,36 +211,66 @@ export class ComptimeEvaluator
 				continue;
 			}
 
-			const declarationModule = this.findDeclarationModule(symbol, modules);
+			const declarationModule = this.findDeclarationModule(
+				symbol,
+				modules,
+			);
 
-			if (!declarationModule) {
-				continue;
-			}
+			let name: string;
+			let runtimeModule: RuntimeModule;
+			let modulePath: string;
 
-			const declaration = declarationModule.getComptimeDeclaration(symbol);
+			if (declarationModule) {
+				const declaration =
+					declarationModule.getComptimeDeclaration(symbol);
 
-			if (!declaration) {
-				continue;
-			}
+				if (!declaration || declaration.type !== "comptime.fn") {
+					continue;
+				}
 
-			const name = declaration.statement.name;
+				if (!ts.isIdentifier(declaration.statement.name)) {
+					continue;
+				}
 
-			if (!ts.isIdentifier(name)) {
-				continue;
-			}
+				name = declaration.statement.name.text;
+				modulePath = declarationModule.path;
 
-			const runtimeModule = runtimeModules.get(declarationModule);
+				const localRuntimeModule = runtimeModules.get(
+					declarationModule,
+				);
 
-			if (!runtimeModule) {
-				throw new Error(
-					`No generated runtime module for "${declarationModule.path}".`,
+				if (!localRuntimeModule) {
+					throw new Error(
+						`No generated runtime module for "${modulePath}".`,
+					);
+				}
+
+				runtimeModule = localRuntimeModule;
+			} else {
+				const external = this.findExternalComptimeFunction(symbol);
+
+				if (!external) {
+					continue;
+				}
+
+				name = external.entry.name;
+				modulePath = resolve(
+					external.packageRoot,
+					external.entry.module,
+				);
+
+				runtimeModule = await this.loadExternalRuntimeModule(
+					modulePath,
 				);
 			}
 
-			const exported = runtimeModule[name.text];
+			const exported = runtimeModule[name];
 
 			if (!this.isComptimeFn(exported)) {
-				continue;
+				throw new Error(
+					`Manifest entry "${name}" in "${modulePath}" does not ` +
+					`export a valid comptime function.`,
+				);
 			}
 
 			const result: any = await exported.__ion_comptime_fn__!(
@@ -132,7 +278,10 @@ export class ComptimeEvaluator
 			);
 
 			if (!ts.isExpression(result)) {
-				throw new Error(`Comptime function "${name.text}" in "${declarationModule.path}" must return a TypeScript expression.`);
+				throw new Error(
+					`Comptime function "${name}" in "${modulePath}" ` +
+					`must return a TypeScript expression.`,
+				);
 			}
 
 			results.set(call.node, result);

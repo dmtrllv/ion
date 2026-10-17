@@ -18,6 +18,7 @@ export type ComptimeManifestExport = {
 	readonly kind: MacroType;
 	readonly module: string;
 	readonly name: string;
+	readonly source: string;
 };
 
 type PackageJson = {
@@ -26,8 +27,7 @@ type PackageJson = {
 };
 
 export class ComptimeManifestWriter
-	implements Pass<void, [ModuleMap, TransformedModule[], PackageJson]>
-{
+	implements Pass<void, [ModuleMap, TransformedModule[], PackageJson]> {
 	public async run(
 		compiler: Compiler,
 		modules: ModuleMap,
@@ -84,6 +84,9 @@ export class ComptimeManifestWriter
 				name: declaration.statement.name.getText(
 					declarationModule.sourceFile,
 				),
+				source: relative(compiler.root, declarationModule.fullPath)
+					.split(sep)
+					.join("/"),
 			};
 		}
 

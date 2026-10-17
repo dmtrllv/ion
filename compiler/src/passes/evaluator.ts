@@ -67,14 +67,19 @@ export class ComptimeEvaluator implements Pass<Map<ts.CallExpression, ts.Express
 	private findExternalComptimeFunction(
 		symbol: ts.Symbol,
 	): ExternalComptimeFunction | undefined {
+
 		const declaration = symbol.valueDeclaration ??
 			symbol.declarations?.[0];
 
-		if (!declaration || declaration.getSourceFile().isDeclarationFile) {
+		if (!declaration) {
 			return undefined;
 		}
 
-		const sourcePath = resolve(declaration.getSourceFile().fileName);
+		const declarationSourceFile = declaration.getSourceFile();
+		// @ts-expect-error
+		const isDeclarationFile = declarationSourceFile.isDeclarationFile;
+
+		const sourcePath = resolve(declarationSourceFile.fileName);
 		let directory = dirname(sourcePath);
 
 		while (true) {
@@ -88,36 +93,15 @@ export class ComptimeEvaluator implements Pass<Map<ts.CallExpression, ts.Express
 					),
 				) as ComptimeManifest;
 
+				// @ts-expect-error
 				const sourceRelativePath = sourcePath
 					.slice(directory.length + 1)
 					.replace(/\\/g, "/");
 
-				const entry = Object.values(manifest.exports).find(item => {
-					if (item.kind !== "comptime.fn") {
-						return false;
-					}
-
-					// New manifests use an exact source path. The fallback
-					// supports existing manifests that predate the source field.
-					if (item.source) {
-						return item.source === sourceRelativePath &&
-							item.name === symbol.getName();
-					}
-
-					const generatedName = item.module
-						.replace(/\\/g, "/")
-						.split("/")
-						.pop()
-						?.replace(/\.js$/, "");
-
-					const sourceName = sourceRelativePath
-						.split("/")
-						.pop()
-						?.replace(/\.(tsx?|mts|cts)$/, "");
-
-					return item.name === symbol.getName() &&
-						generatedName === sourceName;
-				});
+				const entry = Object.values(manifest.exports).find(item =>
+					item.kind === "comptime.fn" &&
+					item.name === symbol.getName()
+				);
 
 				return entry
 					? { packageRoot: directory, entry }

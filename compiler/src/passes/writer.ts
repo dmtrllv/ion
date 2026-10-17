@@ -291,6 +291,7 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 		);
 	}
 
+
 	private resolveReference(
 		compiler: Compiler,
 		consumer: ts.SourceFile,
@@ -320,13 +321,64 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 			);
 		}
 
-		const targetSourceFile = declaration.getSourceFile();
+		let targetSourceFile = declaration.getSourceFile();
+		let resolvedSymbol = targetSymbol;
 
 		if (targetSourceFile.isDeclarationFile) {
-			throw new RefError(
-				`Comptime reference "${name}" resolves to a declaration file ` +
-				`("${targetSourceFile.fileName}") rather than a runtime module.`,
+			const targetPackage = this.findPackageRoot(
+				targetSourceFile.fileName,
 			);
+
+			const manifestEntry = Object.values(
+				targetPackage.manifest.exports,
+			).find(
+				entry => entry.name === targetSymbol.getName(),
+			);
+
+			if (!manifestEntry?.source) {
+				throw new RefError(
+					`Comptime reference "${name}" resolves to a declaration file ` +
+					`("${targetSourceFile.fileName}"), but no matching source entry ` +
+					`exists in "${targetPackage.root}/comptime.manifest.json".`,
+				);
+			}
+
+			const sourcePath = resolve(
+				targetPackage.root,
+				manifestEntry.source,
+			);
+
+			const sourceFile = compiler.program.getSourceFile(sourcePath);
+
+			if (!sourceFile || sourceFile.isDeclarationFile) {
+				throw new RefError(
+					`Could not resolve the runtime source for comptime reference ` +
+					`"${name}" from "${sourcePath}". Ensure that the source file ` +
+					`is included in the compiler program.`,
+				);
+			}
+
+			targetSourceFile = sourceFile;
+
+			const sourceModuleSymbol =
+				compiler.typeChecker.getSymbolAtLocation(targetSourceFile);
+
+			const sourceExport = sourceModuleSymbol
+				? compiler.typeChecker
+					.getExportsOfModule(sourceModuleSymbol)
+					.find(symbol =>
+						symbol.getName() === manifestEntry.name,
+					)
+				: undefined;
+
+			if (!sourceExport) {
+				throw new RefError(
+					`Manifest entry "${manifestEntry.name}" is not exported by ` +
+					`"${targetSourceFile.fileName}".`,
+				);
+			}
+
+			resolvedSymbol = this.resolveAlias(compiler, sourceExport);
 		}
 
 		const moduleSymbol = compiler.typeChecker.getSymbolAtLocation(
@@ -335,7 +387,8 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 
 		const exported = moduleSymbol
 			? compiler.typeChecker.getExportsOfModule(moduleSymbol).find(
-				symbol => this.resolveAlias(compiler, symbol) === targetSymbol,
+				symbol =>
+					this.resolveAlias(compiler, symbol) === resolvedSymbol,
 			)
 			: undefined;
 
@@ -346,14 +399,18 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 			);
 		}
 
-		const targetPackage = this.findPackageRoot(targetSourceFile.fileName);
+		const targetPackage = this.findPackageRoot(
+			targetSourceFile.fileName,
+		);
+
 		const targetModulePath = this.getRuntimeOutputModule(
 			targetPackage,
 			targetSourceFile,
-			targetSymbol,
+			resolvedSymbol,
 		);
 
 		const consumerPackage = this.findPackageRoot(consumer.fileName);
+
 		const consumerOutputPath = this.getOutputModulePath(
 			consumerPackage,
 			consumer,
@@ -375,6 +432,7 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 			moduleSpecifier,
 		};
 	}
+
 
 	private getDeclarationSourceFile(
 		compiler: Compiler,
@@ -565,6 +623,7 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 	private getRuntimeOutputModule(
 		pkg: PackageInfo,
 		sourceFile: ts.SourceFile,
+		// @ts-expect-error
 		targetSymbol: ts.Symbol,
 	): string {
 		return this.getOutputModulePath(pkg, sourceFile);

@@ -1,21 +1,37 @@
 
+import { Effect } from "./effect.js";
 import { GlobalScope } from "./global-scope.js";
+import { Memo } from "./memo.js";
 import { ReactiveObserver, ReactiveSource, Unsubscriber, withObserver } from "./reactive.js";
 import { Slot, SlotData } from "./slot.js";
 
 export type ScopeClosure<T> = () => T;
 
-let activeScope: Scope<any> | GlobalScope = GlobalScope.get();
+type ActiveScope = Scope<any> | GlobalScope;
+
+let activeScope: ActiveScope = GlobalScope.get();
 
 // @internal
-export const getActiveScope = (): Scope<any> | GlobalScope => activeScope || GlobalScope.get();
+export const getActiveScope = (): ActiveScope => activeScope;
+
+// @internal
+export const withActiveScope = <T>(scope: ActiveScope, closure: () => T): T => {
+	const previous = activeScope;
+	activeScope = scope;
+
+	try {
+		return closure();
+	} finally {
+		activeScope = previous;
+	}
+};
 
 export class Scope<T> implements ReactiveObserver {
 	readonly #closure: ScopeClosure<T>;
 	readonly #eventHandlers: ScopeEventHandler[] = [];
 	readonly #slots: Record<string, Slot> = {};
 	readonly #dependencies = new Set<ReactiveSource>();
-	readonly #queue: ScopeEvent<ScopeEventType>[] = [];
+
 	#nextDependencies: Set<ReactiveSource> | null = null;
 	#result!: T;
 	#isInitialized = false;
@@ -23,7 +39,10 @@ export class Scope<T> implements ReactiveObserver {
 	#wasInvalidatedWhileRunning = false;
 	#isRunning = false;
 	#isFlushing = false;
+	#isEmitting = false;
 	#hasQueuedInvalidation = false;
+	#hasQueuedPending = false;
+	#queuedEvents: ScopeEvent<ScopeEventType>[] = [];
 
 	public get isInitialized(): boolean {
 		return this.#isInitialized;
@@ -39,52 +58,82 @@ export class Scope<T> implements ReactiveObserver {
 
 	// @internal
 	public invalidate(): void {
-		if (this.#isRunning)
+		if (this.#isRunning) {
 			this.#wasInvalidatedWhileRunning = true;
+			return;
+		}
 
 		if (this.#isInvalidated)
 			return;
 
 		this.#isInvalidated = true;
 
-		if (this.#hasQueuedInvalidation)
+		if (!this.#hasQueuedInvalidation) {
+			this.#hasQueuedInvalidation = true;
+			this.#queuedEvents.push({ type: ScopeEvent.Invalidated, data: {} });
+		}
+	}
+
+	// @internal
+	public notifyPending(): void {
+		if (this.#hasQueuedPending)
 			return;
 
-		this.#hasQueuedInvalidation = true;
-		this.#queue.push({ type: ScopeEvent.Invalidated, data: {} });
+		this.#hasQueuedPending = true;
+		this.#queuedEvents.push({ type: ScopeEvent.Pending, data: {} });
 	}
 
 	// @internal
 	public track(source: ReactiveSource): void {
-		if (this.#nextDependencies === null)
+		if (!this.#nextDependencies || this.#nextDependencies.has(source))
 			return;
 
 		this.#nextDependencies.add(source);
 		source.addObserver(this);
 	}
 
+
 	public flush(): void {
 		if (this.#isFlushing)
 			throw new Error("Cannot flush a scope while it is already flushing.");
 
 		this.#isFlushing = true;
-		const errors: unknown[] = [];
+		const errors: Error[] = [];
 
 		try {
-			while (this.#queue.length > 0) {
-				const event = this.#queue.shift()!;
+			let hasPendingWork: boolean;
 
-				if (event.type === ScopeEvent.Invalidated)
-					this.#hasQueuedInvalidation = false;
+			do {
+				const slots = Object.values(this.#slots).map(slot => slot.data);
+				const memos = slots.filter((value): value is Memo<any> => value instanceof Memo);
+				const effects = slots.filter((value): value is Effect => value instanceof Effect);
 
-				for (const handler of [...this.#eventHandlers]) {
+				hasPendingWork = false;
+
+				for (const memo of memos) {
 					try {
-						handler(event);
+						if (!memo.isStale)
+							continue;
+
+						memo.flush();
+						hasPendingWork = true;
 					} catch (error) {
-						errors.push(error);
+						errors.push(toError(error));
 					}
 				}
-			}
+
+				for (const effect of effects) {
+					if (!effect.isPending)
+						continue;
+
+					const result = effect.execute();
+
+					if (result.error)
+						errors.push(result.error);
+					else
+						hasPendingWork = true;
+				}
+			} while (hasPendingWork && this.#hasPendingComputations());
 		} finally {
 			this.#isFlushing = false;
 		}
@@ -93,40 +142,45 @@ export class Scope<T> implements ReactiveObserver {
 			throw errors[0];
 
 		if (errors.length > 1)
-			throw new AggregateError(errors, "Errors occurred while flushing a scope.");
+			throw new AggregateError(errors, "Multiple reactive computations failed.");
 	}
+
+	readonly #hasPendingComputations = (): boolean => {
+		return Object.values(this.#slots).some(({ data }) =>
+			(data instanceof Memo && data.isStale) ||
+			(data instanceof Effect && data.isPending)
+		);
+	};
+
 
 	public run(): Result<T> {
 		if (this.#isRunning)
-			throw new Error("Cannot run a scope while it is already running.");
+			return { error: new Error("Cannot run a scope while it is already running.") };
 
 		if (this.#isInitialized && !this.#isInvalidated)
 			return { data: this.#result };
 
 		this.#isRunning = true;
-		this.#wasInvalidatedWhileRunning = false;
 		this.#isInvalidated = false;
+		this.#wasInvalidatedWhileRunning = false;
 
-		const previousScope = activeScope;
-		const previousDependencies = this.#dependencies;
+		const previousDependencies = new Set(this.#dependencies);
 		const nextDependencies = new Set<ReactiveSource>();
 
-		activeScope = this;
 		this.#nextDependencies = nextDependencies;
 
 		try {
-			const result = withObserver(this, this.#closure);
+			const result = withActiveScope(this, () => withObserver(this, this.#closure));
 
-			for (const source of previousDependencies) {
-				if (!nextDependencies.has(source))
-					source.removeObserver(this);
+			for (const dependency of previousDependencies) {
+				if (!nextDependencies.has(dependency))
+					dependency.removeObserver(this);
 			}
 
 			this.#dependencies.clear();
 
-			for (const source of nextDependencies) {
-				this.#dependencies.add(source);
-			}
+			for (const dependency of nextDependencies)
+				this.#dependencies.add(dependency);
 
 			this.#result = result;
 			this.#isInitialized = true;
@@ -134,72 +188,107 @@ export class Scope<T> implements ReactiveObserver {
 
 			return { data: result };
 		} catch (error) {
-			for (const source of nextDependencies) {
-				if (!previousDependencies.has(source))
-					source.removeObserver(this);
+			for (const dependency of nextDependencies) {
+				if (!previousDependencies.has(dependency))
+					dependency.removeObserver(this);
 			}
 
 			this.#isInvalidated = true;
-
-			throw error;
+			return { error: toError(error) };
 		} finally {
 			this.#nextDependencies = null;
 			this.#isRunning = false;
-			activeScope = previousScope;
+			this.#wasInvalidatedWhileRunning = false;
+			this.#emitEvents();
 		}
 	}
 
 	// @internal
-	public getOrInsertSlot = <T extends SlotData>(id: string, onInsert: () => T): T => {
-		if (!this.#slots[id])
-			this.#slots[id] = new Slot(onInsert());
-		return this.#slots[id].data as T;
+	public getOrInsertSlot<T extends SlotData>(id: string, onInsert: () => T): T {
+		let slot = this.#slots[id];
+
+		if (!slot) {
+			slot = new Slot(onInsert());
+			this.#slots[id] = slot;
+		}
+
+		return slot.data as T;
 	}
 
-	public readonly onEvent = (handler: ScopeEventHandler): Unsubscriber => {
+	public onEvent(handler: ScopeEventHandler): Unsubscriber {
 		this.#eventHandlers.push(handler);
-		return () => this.removeEventHandler(handler);
+
+		return () => {
+			const index = this.#eventHandlers.indexOf(handler);
+
+			if (index === -1)
+				return false;
+
+			this.#eventHandlers.splice(index, 1);
+			return true;
+		};
 	}
 
-	private readonly removeEventHandler = (handler: ScopeEventHandler): boolean => {
-		const index = this.#eventHandlers.indexOf(handler);
+	readonly #emitEvents = (): void => {
+		if (this.#isRunning || this.#isEmitting)
+			return;
 
-		if (index === -1)
-			return false;
+		this.#isEmitting = true;
+		const errors: Error[] = [];
 
-		this.#eventHandlers.splice(index, 1);
-		return true;
-	}
+		try {
+			while (this.#queuedEvents.length) {
+				const event = this.#queuedEvents.shift()!;
+
+				if (event.type === ScopeEvent.Invalidated)
+					this.#hasQueuedInvalidation = false;
+				else if (event.type === ScopeEvent.Pending)
+					this.#hasQueuedPending = false;
+
+				for (const handler of [...this.#eventHandlers]) {
+					try {
+						handler(event);
+					} catch (error) {
+						errors.push(toError(error));
+					}
+				}
+			}
+		} finally {
+			this.#isEmitting = false;
+		}
+
+		if (errors.length === 1)
+			throw errors[0];
+
+		if (errors.length > 1)
+			throw new AggregateError(errors, "Multiple scope event handlers failed.");
+	};
 }
 
 export type ScopeEventHandler = <T extends ScopeEventType>(event: ScopeEvent<T>) => any;
 
 export type ScopeEvent<T extends ScopeEventType> = {
-	readonly type: T,
+	readonly type: T;
 	readonly data: ScopeEvents[T];
 };
 
 const Invalidated = "INVALIDATED" as const;
 const Pending = "PENDING" as const;
 
-export const ScopeEvent = {
-	Invalidated,
-	Pending,
-} as const;
+export const ScopeEvent = { Invalidated, Pending } as const;
 
 export type ScopeEventType = (typeof ScopeEvent)[keyof typeof ScopeEvent];
 
 type ScopeEvents = {
-	[Invalidated]: {},
-	[Pending]: {},
+	[Invalidated]: {};
+	[Pending]: {};
 };
 
 export const scope = <T>(closure: ScopeClosure<T>): Scope<T> => new Scope<T>(closure);
 
-export type Result<T> = {
-	readonly data: T;
-	readonly error?: undefined;
-} | {
-	readonly data?: undefined;
-	readonly error: Error;
-};
+export type Result<T> =
+	| { readonly data: T; readonly error?: undefined }
+	| { readonly data?: undefined; readonly error: Error };
+
+const toError = (error: unknown): Error =>
+	error instanceof Error ? error : new Error(String(error));

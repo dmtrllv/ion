@@ -1,3 +1,4 @@
+
 import { effect, scope, ScopeEvent, signal } from "@ion/signal";
 
 const app = scope(() => {
@@ -10,13 +11,14 @@ const app = scope(() => {
 	]);
 
 	effect(() => {
-		console.log(todos.get());
+		console.log(title.get(), todos.get());
 
 		if (!todos.get().length)
 			return;
 
 		const timeout = setTimeout(() => {
 			todos.update(list => list.splice(0, 1));
+			process();
 		}, 1000);
 
 		return () => clearTimeout(timeout);
@@ -24,29 +26,46 @@ const app = scope(() => {
 
 	return {
 		addTodo: (item: string) => todos.update(list => list.push(item)),
-		removeTodo: (index: number) => todos.update(list => list.splice(index)),
-		setTitle: (t: string) => title.set(t),
-		todos: todos.inspect()
+		removeTodo: (index: number) => todos.update(list => list.splice(index, 1)),
+		setTitle: (value: string) => title.set(value),
+		todos
 	};
 });
 
-app.onEvent((e) => {
-	switch (e.type) {
-		case ScopeEvent.Invalidated:
-			console.log("invalidated, rerun...");
-			app.run();
+const process = (): void => {
+	try {
+		app.flush();
+	} catch (error) {
+		console.error("Error while processing scope events:", error);
+	}
+};
+
+app.onEvent(event => {
+	switch (event.type) {
+		case ScopeEvent.Invalidated: {
+			console.log("Invalidated; rerunning scope...");
+			const result = app.run();
+
+			if (result.error)
+				console.error("Scope execution failed:", result.error);
+
 			break;
-		case ScopeEvent.Pending:
-			console.log("got pending, flush...");
+		}
+		case ScopeEvent.Pending: {
+			console.log("Pending effects; executing...");
+			
 			app.flush();
+
 			break;
+		}
 	}
 });
 
-const { data, error } = app.run();
+const result = app.run();
 
-if (data) {
-	data.addTodo("test");
+if (result.error) {
+	console.error("Initial scope execution failed:", result.error);
 } else {
-	console.log(error);
+	result.data.addTodo("test");
+	process();
 }

@@ -1,218 +1,258 @@
-# Signals
+# Making the Ion Test Application Work
 
-## Signal
+## Goal
 
-A signal stores a mutable value and acts as a source of reactive changes.
+Make the `@ion/test-app` example work with the current `@ion/signal` implementation.
 
-### Semantics
+The example should demonstrate:
 
-- Reading a signal establishes a dependency on it.
-- Writing a signal updates its value immediately.
-- A write propagates a change only when the new value differs from the previous value according to the signal's equality rule.
-- Change propagation updates reactive state and enqueues work for later processing.
-- `update()` applies a mutation callback to the current value and propagates the change.
+- Signals storing and propagating changes.
+- Scopes tracking dependencies and rerunning when invalidated.
+- Effects executing after creation and after their dependencies change.
+- Effect cleanup running before the next execution and when an effect is disposed.
+- Queued events being processed without recursive flushing.
+- Errors being reported with enough information to identify the failed reactive object.
 
-### Implementation
+Effect callbacks are synchronous. The effect may schedule external asynchronous work, such as a timer, and return a synchronous cleanup callback, but the signal library does not support asynchronous effect execution.
 
-- `Signal<T>` exposes `get()`, `inspect()`, `set()`, `update()`, and `subscribe()`.
-- `get()` registers the currently executing reactive computation as a dependent.
-- `inspect()` reads the value without establishing a dependency.
-- `set()` compares the new value with the current value and does nothing if they are equal.
-- `update()` applies a mutation callback to the current value. Since the callback may mutate an object in place, the operation notifies dependents without relying on reference equality to detect the mutation.
-- Writes notify dependents through the reactive graph.
-- Dependencies are stored so they can be removed when no longer needed.
-- Notification and processing of enqueued work are separate operations.
+## 1. Fix effect scheduling
 
-## Scope
+**File:** `signal/src/effect.ts`
 
-A scope executes a closure, returns its result, and tracks the reactive values read during execution.
+### Current problem
 
-### Semantics
+The `Effect` constructor captures the active scope but calls `this.#scope.invalidate()`.
 
-- A scope becomes invalidated when a signal it depends on changes or a memo it depends on produces a changed value.
-- Invalidation changes the scope's state immediately, but its event notification is queued.
-- A scope does not immediately rerun when invalidated.
-- A scope can depend on reactive values created outside its own scope.
-- When run, a scope executes its closure from the beginning, resolving values sequentially.
-- Explicit calls to `run()` execute the closure only if the scope has never been initialized or is currently invalidated. Otherwise, `run()` returns the cached result.
-- Each scope owns its own queue.
-- Flushing a scope processes its queue, which may trigger pending memo recalculations and effect executions.
-- A scope's queue is independent of other scopes' queues. The consumer determines which scopes to flush and when.
+This invalidates the owning scope rather than notifying the consumer that an effect is pending. It conflates two different states:
 
-### Implementation
+- `Invalidated`: a scope must reevaluate its closure.
+- `Pending`: an effect must execute.
 
-- A scope tracks its current dependencies, invalidation state, initialization state, cached result, execution state, slots, event handlers, and queue.
-- During execution, reactive reads register dependencies against the active scope.
-- After successful execution, dependencies from the previous run that were not read again are removed, and newly read dependencies become the current dependency set.
-- If execution fails, dependencies from the previous successful run are retained, newly acquired dependencies are removed, and the scope remains invalidated.
-- A scope cannot be run recursively while it is already running.
-- If the scope is invalidated during execution, it remains invalidated after the run completes.
-- The scope exposes events for relevant state transitions.
-- Invalidation events are enqueued when the scope becomes invalidated and emitted when the scope's queue is flushed.
-- Repeated invalidations while the scope is already invalidated are coalesced; they do not enqueue duplicate invalidation events.
-- `flush()` drains the scope's queue, including additional work enqueued into that same scope while it is being flushed.
-- Flushing one scope does not implicitly flush other scopes.
-- Errors encountered while executing the scope closure are reported by `run()`. Errors encountered while flushing queued work are reported by `flush()`, after eligible queued work has been processed.
+An effect becoming pending should not, by itself, invalidate its owner scope.
 
-## Global Scope
+### Required changes
 
-The global scope is a special scope used to represent global reactive context and notify the runtime when effects need processing. It follows the same queue and flushing principles as other scopes.
+1. Keep the owning scope captured at effect creation.
+2. Introduce a distinct internal operation for notifying the owning scope that effects are pending, such as `notifyPending()`.
+3. Have both `Scope` and `GlobalScope` support the appropriate pending-notification operation, so `Effect` does not need to import or reference `GlobalScope` directly.
+4. Use the captured owner scope to notify pending work when the effect is created and whenever it transitions from not pending to pending.
+5. Coalesce repeated notifications while a pending notification is already queued.
+6. Preserve the existing behavior where a failed effect does not automatically become pending again.
 
-### Semantics
+Do not implement pending notification by calling `Scope.invalidate()`. Scope invalidation and effect scheduling must remain separate.
 
-- The global scope does not execute a user-defined closure and cannot be rerun.
-- Its only event is `Pending`, indicating that effects need processing.
-- The global scope owns its own queue; it does not own or coordinate the queues of other scopes.
-- Signals, memos, and invalidated scopes do not directly emit events to the global scope.
-- Multiple effect invalidations are coalesced while a pending notification is already outstanding.
-- Scope invalidation alone does not request a global pending notification.
-- The consumer determines when to flush the global scope and when to execute pending effects.
+## 2. Make pending effects discoverable
 
-### Implementation
+**Files:** `signal/src/scope.ts`, `signal/src/slot.ts`, `signal/src/index.ts`
 
-- The global scope maintains whether a `Pending` notification has already been emitted and remains outstanding.
-- When an effect transitions from not pending to pending, the global scope enqueues a `Pending` notification if none is outstanding.
-- Further effect invalidations do not enqueue additional notifications while one is outstanding.
-- `Pending` is emitted when the global scope's queue is flushed.
-- Once pending effects have been processed and the notification state is reset, a subsequent transition to pending can enqueue another notification.
-- The global scope does not execute effects itself; the runtime handles effect processing in response to its `Pending` event.
-- Errors encountered while flushing the global scope's queue are reported by its `flush()` operation.
+### Current problem
 
-## Memo
+The scope stores signals, memos, and effects in its slots, but it does not expose a way for the consumer to find pending effects.
 
-A memo computes and caches a derived value from reactive dependencies.
+`Effect.execute()` exists, but nothing in the current example invokes it.
 
-### Semantics
+The `GlobalScope` also only emits a `Pending` event. It does not execute effects or provide an effect-processing loop.
 
-- Reading a memo establishes a dependency on its computed value.
-- When an upstream dependency changes, the memo becomes stale.
-- A stale memo recomputes when its value is requested or when pending reactive work is processed.
-- Dependents are notified only if recomputation produces a changed value.
-- A memo becoming stale does not, by itself, invalidate scopes that depend on it.
-- A memo cannot automatically track changes to ordinary JavaScript variables captured by its closure.
+### Required changes
 
-### Implementation
+1. Add an API for the consumer to retrieve pending effects belonging to a scope.
+2. Ensure that only effects whose `isPending` state is true are selected.
+3. Expose the necessary API through the package's public exports if the consumer needs it outside the signal package.
+4. Keep effect execution under consumer/runtime control rather than making `flush()` implicitly execute effects.
 
-- A memo stores its computation, cached value, dependencies, and stale state.
-- Reactive reads during computation register dependencies against the memo.
-- Changes to its dependencies mark it stale.
-- When read while stale, the memo recomputes and reconciles its dependencies.
-- Recalculation compares the new value with the previous value using the selected equality rule.
-- If the value changed, the memo propagates a value-change notification to its dependents.
-- If the value did not change, downstream dependents are not notified.
-- Memo recomputation does not require a global `Pending` event unless it causes an effect to become pending.
+The consumer should be able to respond to a pending notification, retrieve pending effects, execute them, and handle their returned results.
 
-## Effect
+## 3. Deliver pending events through the owning scope
 
-An effect executes a closure for reactive side effects.
+**Files:** `signal/src/scope.ts`, `signal/src/global-scope.ts`
 
-### Semantics
+### Current problem
 
-- Reactive reads establish dependencies for the effect.
-- When a dependency changes, the effect becomes pending for execution.
-- Effects execute during reactive processing, not synchronously as part of a signal write.
-- An effect becoming pending does not invalidate scopes.
-- Pending effects are the only reason for the global scope to emit `Pending`.
-- Multiple invalidations before execution are coalesced.
+`ScopeEvent.Pending` is declared, but the regular `Scope` currently only enqueues `Invalidated` events. Consequently, the test application's `Pending` event handler cannot receive a pending event from its `app` scope.
 
-### Implementation
+The global scope can queue `Pending` events, but the test application subscribes to `app.onEvent()`, not to the global scope.
 
-- An effect stores its computation, dependencies, and pending state.
-- Reactive reads register dependencies against the active effect.
-- Dependency changes mark the effect pending and request a global pending notification.
-- On execution, the effect reconciles its dependencies.
-- If supported, a cleanup function returned by the previous execution runs before the next execution.
-- Effect execution is controlled by the consumer's runtime, not by the global scope itself.
-- Errors from effect execution are reported by the operation that executes the effect, normally the runtime's reactive-processing operation.
+### Required changes
 
-### Consumer responsibilities
+1. Allow a regular scope to enqueue and emit a `Pending` event without marking itself invalidated.
+2. Preserve the separate `Invalidated` event for scope dependency changes.
+3. Ensure a scope can notify its consumer when an effect created in that scope becomes pending.
+4. Keep each scope's queue independent.
+5. Continue coalescing duplicate pending notifications while one is already queued.
 
-- The consumer owns the component tree, including parent-child relationships between component instances.
-- The consumer decides which scopes to flush and in what order.
-- The consumer determines when to rerun invalidated component scopes.
-- The consumer reconciles the nodes returned by component scopes.
-- The consumer decides whether existing child scopes can be retained, whether new scopes must be created, and which scopes must be disposed.
-- The consumer prevents disposed scopes from being scheduled or executed again.
-- The consumer handles global ordering across independently queued scopes.
+The active scope captured when an effect is created should be the context used for this notification. The effect implementation should not directly depend on `GlobalScope`.
 
-### Scheduling semantics
+## 4. Restore the owning scope during effect execution
 
-- The signal library does not impose a global ordering across scope queues.
-- Each scope's queue is processed independently through that scope's `flush()` method.
-- Flushing a scope does not automatically flush its parent, children, or sibling scopes.
-- The consumer can batch invalidations and determine an appropriate reconciliation order.
-- Parent-child ordering is a consumer scheduling policy, not a responsibility of `GlobalScope`.
-- Pending effects are scheduled through the global `Pending` notification, but their execution order remains the consumer's responsibility.
-- Work generated during reconciliation can enqueue further work. The consumer determines when that work is processed.
+**Files:** `signal/src/scope.ts`, `signal/src/effect.ts`
 
-### Reconciliation example
+### Current problem
 
-For a component tree such as:
+`Effect.execute()` uses `withObserver()` to establish dependency tracking, but it does not establish the effect's owning scope as the active scope.
 
-```text
-Root
-└── Parent
-    ├── Child A
-    └── Child B
-```
+The active scope is currently changed only during `Scope.run()`.
 
-A signal update may invalidate both `Parent` and `Child A`.
+Consequently, if an effect creates or retrieves a signal or memo during execution, `getActiveScope()` may resolve to a different scope than the one that owns the effect.
 
-1. The signal updates immediately and propagates invalidation.
-2. Each affected scope updates its invalidation state and queues its own event.
-3. The consumer flushes the relevant scope queues.
-4. The consumer determines the scheduling and reconciliation order.
-5. The parent may rerun and reconcile its children before the consumer decides whether `Child A` should still exist.
-6. The consumer retains, creates, or disposes of child scopes as required.
-7. Disposed scopes are removed from scheduling so that obsolete work cannot execute against them.
+### Required changes
 
-This separation allows different consumers to implement different scheduling and reconciliation policies without changing the signal library.
+1. Add an internal helper that temporarily establishes a specified active scope while executing a synchronous closure.
+2. Restore the previous active scope in a `finally` block.
+3. Execute the effect closure with both the owning scope and the effect observer established.
+4. Restore both contexts even when the closure throws.
+5. Keep this mechanism synchronous; asynchronous context propagation is not required.
 
-## Reactive Processing
+This should be implemented as a reusable scope-context mechanism rather than duplicating active-scope manipulation inside `Effect`.
 
-Reactive processing propagates changes through the dependency graph while keeping staleness, pending work, and scope invalidation distinct.
+## 5. Correct effect execution and cleanup
 
-### Implementation concepts
+**File:** `signal/src/effect.ts`
 
-- **Stale:** A memo's cached value may no longer be valid.
-- **Pending:** An effect needs execution.
-- **Invalidated:** A scope's result needs reevaluation.
-- **Queued event:** A scope has an event awaiting delivery through its own queue.
-- **Pending event:** A global notification that pending effects need processing.
+The current implementation already contains much of the required effect lifecycle, but the following invariants must be maintained.
 
-### Change propagation
+### Execution
 
-1. A signal write updates its value immediately and propagates changes through its dependents.
-2. Dependent memos become stale.
-3. Scopes that depend directly on the changed signal become invalidated immediately. Their `Invalidated` events are enqueued in their respective scope queues.
-4. When a stale memo is read or recalculated during reactive processing, it recomputes and compares its new result with its previous result.
-5. If the memo's result changed, its dependents are notified. Dependent scopes become invalidated, and dependent memos become stale.
-6. If an effect becomes pending, the global scope enqueues a coalesced `Pending` event.
-7. Each scope's queued events are delivered when that scope is flushed. Flushing a scope drains its own queue, including work added to that queue during flushing.
-8. The consumer processes pending effects in response to the global `Pending` notification. Reading a stale memo during effect execution recomputes it as needed.
-9. If reactive processing causes additional work to be enqueued, the consumer determines when the affected scopes are flushed and when pending effects are executed.
-10. The consumer schedules invalidated component scopes, reruns them when appropriate, and reconciles their returned nodes.
+- A newly created effect begins pending.
+- Executing a non-pending effect is a no-op.
+- Executing a pending effect clears its pending state before running the closure.
+- Dependencies are collected during execution.
+- Previous dependencies that are no longer read are removed only after successful execution.
+- Dependencies acquired during a failed execution are removed if they were not part of the previous successful dependency set.
+- A failure returns an error result containing `source: this`.
+- A failed execution does not automatically retry.
+- If a dependency invalidates the effect during execution, a successful execution must preserve that new pending state and notify the owning scope.
 
-Scope invalidation does not automatically execute the scope. The consumer of the signal library decides when to flush affected scopes, rerun invalidated scopes, and handle their returned values.
+### Cleanup
 
-Each scope owns its own queue. The global scope does not coordinate these queues; it follows the same queue and flush principles while providing the global `Pending` notification.
+- The cleanup callback from the previous successful execution runs before the next execution.
+- A cleanup callback returned by a successful execution is retained for the next execution or disposal.
+- Disposal removes the effect from its dependencies and runs its remaining cleanup at most once.
+- Cleanup failures are returned as errors identifying the effect.
+- Disposed effects cannot execute or become pending again.
 
-### Error handling
+### Synchronous contract
 
-- Event dispatch should invoke all eligible handlers even if an individual handler throws.
-- Handler errors must not be silently discarded.
-- Errors encountered during a flush are collected while eligible queued work continues to be processed, then reported by the relevant `flush()` operation.
-- Errors thrown by a scope closure are reported by `run()`.
-- Errors from deferred work are reported by the operation that executes that work, not retroactively by the signal write that originally enqueued it.
-- The exact error aggregation strategy, including whether multiple failures are reported through `AggregateError`, remains to be finalized.
+Keep `EffectClosure` and `EffectCleanupCallback` synchronous.
 
-### Remaining design decisions
+A callback that returns a promise must not be silently treated as a successful effect execution. Add runtime detection for thenables if necessary, since TypeScript's `void` callback return type does not reliably prevent an asynchronous function from being passed in every callback context.
 
-- Equality rules for signals and memos.
-- The precise ordering of memo recomputation and effect execution.
-- Whether asynchronous effects are supported and how their completion is handled.
-- Reentrancy and scheduling rules for updates made during reactive processing.
-- The exact error aggregation and reporting mechanism.
-- Whether a flush has a bounded processing policy or always drains newly enqueued work until its queue is empty.
-- The exact lifecycle and disposal semantics for scopes.
-- The consumer's scheduling policy for parent-child reconciliation and newly created scopes.
+## 6. Make scope result handling consistent
+
+**File:** `signal/src/scope.ts`
+
+### Current problem
+
+`Scope.run()` is declared to return `Result<T>`, and the test application destructures `{ data, error }` from its result. However, its catch block rethrows the error instead of returning an error result.
+
+This makes the declared return contract inconsistent with the implementation.
+
+### Required changes
+
+Choose one consistent contract. The preferred contract is to return the declared discriminated union:
+
+- Success: `{ data: value }`
+- Failure: `{ error }`
+
+On failure, retain the previous successful dependency set, remove newly acquired dependencies, and leave the scope invalidated so the consumer can decide what happens next.
+
+The test application should be able to handle the returned error without needing a separate exception handler for ordinary scope execution failures.
+
+This is separate from errors returned by effect execution. The consumer must handle both result types.
+
+## 7. Fix the test application's processing loop
+
+**File:** `test/src/index.ts`
+
+### Current problem
+
+The example registers an event handler, but queued events are only delivered when `app.flush()` is called.
+
+The current example does not establish a reliable processing cycle that flushes the scope after the initial run, after `addTodo()`, and after timer-driven updates.
+
+Furthermore, the `Pending` handler calls `app.flush()` from inside `app.flush()`'s own event dispatch. That would cause a reentrant-flush error.
+
+### Required changes
+
+1. Run the scope once to initialize the application.
+2. Flush the scope to deliver its queued events.
+3. When an `Invalidated` event is handled, rerun the scope and handle the returned result.
+4. When a `Pending` event is handled, retrieve and execute pending effects. Do not recursively call `app.flush()` from that handler.
+5. Flush again after explicit updates such as `addTodo()`.
+6. Flush after timer callbacks update the signal, so their queued invalidation and pending events are processed.
+7. Report errors from scope execution and effect execution rather than silently discarding them.
+
+For this initial example, explicit flushing is sufficient. A general-purpose scheduler that automatically arranges processing whenever a queue receives new work can be added later.
+
+The timer callback can continue to use `todos.update()` and then request another processing cycle. The effect itself remains synchronous: it starts a timer and returns a cleanup callback.
+
+## 8. Define the processing order
+
+The example should follow this cycle:
+
+1. A signal is updated.
+2. The signal immediately invalidates dependent scopes, memos, and effects.
+3. Each affected scope updates its state and enqueues the appropriate event.
+4. The consumer flushes the relevant scope queue.
+5. The consumer reruns invalidated scopes.
+6. The consumer executes pending effects.
+7. Effects that schedule additional work or cause further invalidation enqueue more work.
+8. The consumer continues processing queued work until the intended processing cycle is complete.
+
+The signal package should not impose a global ordering across independent scopes. The consumer remains responsible for scheduling and reconciliation.
+
+A `Pending` event is a notification that effects need processing; it is not itself effect execution.
+
+## 9. Add tests before expanding the example
+
+Add focused tests for the following cases.
+
+### Scope
+
+- A scope runs on first invocation.
+- A valid scope returns its cached result.
+- A signal change invalidates the scope.
+- A queued invalidation event is delivered only when the scope is flushed.
+- A failed scope execution returns an error result and retains its previous successful dependencies.
+- Repeated invalidations are coalesced.
+
+### Effect
+
+- An effect is pending after creation.
+- An effect executes only when explicitly processed.
+- Reading a signal establishes an effect dependency.
+- Updating a dependency makes the effect pending and notifies its owner scope.
+- Multiple invalidations while pending are coalesced.
+- A successful rerun replaces the dependency set.
+- A failed execution returns an error identifying the effect and does not schedule a retry.
+- Cleanup runs before the next execution and during disposal.
+- An effect invalidated during execution remains pending after a successful run.
+- Disposed effects cannot be executed or rescheduled.
+
+### Integration
+
+- The initial effect runs after the first processing cycle.
+- Adding a todo triggers the expected scope and effect processing.
+- The timer removes a todo and triggers another processing cycle.
+- Cleanup cancels the previous timer before a replacement timer is created.
+- Emptying the todo list prevents another timer from being scheduled.
+- Errors from scopes and effects are handled without corrupting the processing loop.
+- Calling `flush()` recursively is rejected and is not part of the normal consumer workflow.
+
+## 10. Implementation order
+
+Implement these changes in this order:
+
+1. Separate pending notification from scope invalidation.
+2. Add pending-effect discovery to scopes.
+3. Establish active-scope context during effect execution.
+4. Finalize synchronous effect execution, cleanup, and error handling.
+5. Make `Scope.run()` honor its declared result contract.
+6. Update the test application's processing loop.
+7. Add the focused unit and integration tests.
+8. Run the compiler and build the test application to verify the complete flow.
+
+## Definition of done
+
+The test application is working when its initial run schedules and executes the effect, signal updates invalidate the appropriate reactive objects, the consumer processes queued events without reentrant flushing, and each timer-driven update causes the effect to rerun with correct cleanup.
+
+The example should demonstrate that signal mutation, scope invalidation, effect scheduling, effect execution, and queue flushing are distinct operations coordinated by the consumer.

@@ -1,10 +1,9 @@
 
 import { Comptime, comptime } from "@ion/comptime";
-import { getActiveScope } from "./scope.js";
+import { getActiveScope, withActiveScope } from "./scope.js";
 import { ReactiveObserver, ReactiveResult, ReactiveSource, withObserver } from "./reactive.js";
 
 export type EffectCleanupCallback = () => void;
-
 export type EffectClosure = () => void | EffectCleanupCallback;
 
 export class Effect implements ReactiveObserver {
@@ -12,6 +11,7 @@ export class Effect implements ReactiveObserver {
 	readonly #scope = getActiveScope();
 	readonly #dependencies = new Set<ReactiveSource>();
 	readonly #observers = new Set<ReactiveObserver>();
+
 	#nextDependencies: Set<ReactiveSource> | null = null;
 	#cleanup: EffectCleanupCallback | undefined;
 	#isPending = true;
@@ -21,7 +21,7 @@ export class Effect implements ReactiveObserver {
 
 	public constructor(closure: EffectClosure) {
 		this.#closure = closure;
-		this.#scope.invalidate();
+		this.#scope.notifyPending();
 	}
 
 	public get isPending(): boolean {
@@ -34,7 +34,7 @@ export class Effect implements ReactiveObserver {
 
 	// @internal
 	public track(source: ReactiveSource): void {
-		if (this.#nextDependencies === null)
+		if (!this.#nextDependencies || this.#nextDependencies.has(source))
 			return;
 
 		this.#nextDependencies.add(source);
@@ -52,7 +52,7 @@ export class Effect implements ReactiveObserver {
 		}
 
 		this.#isPending = true;
-		this.#scope.invalidate();
+		this.#scope.notifyPending();
 	}
 
 	// @internal
@@ -80,53 +80,51 @@ export class Effect implements ReactiveObserver {
 		this.#isPending = false;
 		this.#wasInvalidatedWhileRunning = false;
 
-		const previousDependencies = this.#dependencies;
+		const previousDependencies = new Set(this.#dependencies);
 		const nextDependencies = new Set<ReactiveSource>();
+		this.#nextDependencies = nextDependencies;
 
 		try {
 			const cleanup = this.#cleanup;
 			this.#cleanup = undefined;
-
 			cleanup?.();
 
-			const result = withObserver(this, () => {
-				this.#nextDependencies = nextDependencies;
-				return this.#closure();
-			});
+			const result: unknown = withActiveScope(this.#scope, () => withObserver(this, this.#closure));
 
-			if (typeof result === "function") {
-				this.#cleanup = result;
+			if (isThenable(result)) {
+				void Promise.resolve(result).catch(() => {});
+				throw new Error("Effect closures must be synchronous.");
 			}
 
-			for (const source of previousDependencies) {
-				if (!nextDependencies.has(source))
-					source.removeObserver(this);
+			if (typeof result === "function")
+				this.#cleanup = result as EffectCleanupCallback;
+
+			for (const dependency of previousDependencies) {
+				if (!nextDependencies.has(dependency))
+					dependency.removeObserver(this);
 			}
 
 			this.#dependencies.clear();
 
-			for (const source of nextDependencies)
-				this.#dependencies.add(source);
+			for (const dependency of nextDependencies)
+				this.#dependencies.add(dependency);
 
 			if (this.#wasInvalidatedWhileRunning) {
 				this.#isPending = true;
-				this.#scope.invalidate();
+				this.#scope.notifyPending();
 			}
 
 			return { data: {} };
 		} catch (error) {
-			for (const source of nextDependencies) {
-				if (!previousDependencies.has(source))
-					source.removeObserver(this);
+			for (const dependency of nextDependencies) {
+				if (!previousDependencies.has(dependency))
+					dependency.removeObserver(this);
 			}
 
 			this.#cleanup = undefined;
 			this.#isPending = false;
 
-			return {
-				error: toError(error),
-				source: this
-			};
+			return { error: toError(error), source: this };
 		} finally {
 			this.#nextDependencies = null;
 			this.#isRunning = false;
@@ -144,10 +142,11 @@ export class Effect implements ReactiveObserver {
 		this.#isDisposed = true;
 		this.#isPending = false;
 
-		for (const source of this.#dependencies)
-			source.removeObserver(this);
+		for (const dependency of this.#dependencies)
+			dependency.removeObserver(this);
 
 		this.#dependencies.clear();
+		this.#observers.clear();
 
 		const cleanup = this.#cleanup;
 		this.#cleanup = undefined;
@@ -156,17 +155,18 @@ export class Effect implements ReactiveObserver {
 			cleanup?.();
 			return { data: {} };
 		} catch (error) {
-			return {
-				error: toError(error),
-				source: this
-			};
+			return { error: toError(error), source: this };
 		}
 	};
 }
 
-const toError = (error: unknown): Error => {
-	return error instanceof Error ? error : new Error(String(error));
-};
+const isThenable = (value: unknown): value is PromiseLike<unknown> =>
+	value !== null &&
+	(typeof value === "object" || typeof value === "function") &&
+	typeof (value as { then?: unknown }).then === "function";
+
+const toError = (error: unknown): Error =>
+	error instanceof Error ? error : new Error(String(error));
 
 export const createEffect = (id: string, closure: EffectClosure): Effect => {
 	return getActiveScope().getOrInsertSlot(id, () => new Effect(closure));
@@ -177,7 +177,7 @@ export const effect = comptime((ctx) => {
 	const fnRef = ctx.syntax.ref(createEffect);
 
 	return comptime.fn((ctx: Comptime.Context, closure: Comptime.Expr<EffectClosure>) => {
-		const id = ctx.syntax.literal("effect_" + (count++));
+		const id = ctx.syntax.literal("effect_" + count++);
 		return ctx.syntax.call<Effect, [string, EffectClosure]>(fnRef, id, closure);
 	});
 });

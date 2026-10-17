@@ -13,13 +13,19 @@ export class GlobalScope implements ReactiveObserver {
 	readonly #eventHandlers: GlobalScopeEventHandler[] = [];
 	readonly #slots: Record<string, Slot> = {};
 	readonly #queue: ScopeEvent<ScopeEventType>[] = [];
+
 	#hasQueuedPending = false;
 	#isFlushing = false;
 
-	private constructor() { }
+	private constructor() {}
 
 	// @internal
 	public invalidate(): void {
+		this.notifyPending();
+	}
+
+	// @internal
+	public notifyPending(): void {
 		if (this.#hasQueuedPending)
 			return;
 
@@ -28,7 +34,7 @@ export class GlobalScope implements ReactiveObserver {
 	}
 
 	// @internal
-	public track(_source: ReactiveSource): void { }
+	public track(_source: ReactiveSource): void {}
 
 	// @internal
 	public flush(): void {
@@ -36,10 +42,10 @@ export class GlobalScope implements ReactiveObserver {
 			throw new Error("Cannot flush the global scope while it is already flushing.");
 
 		this.#isFlushing = true;
-		const errors: unknown[] = [];
+		const errors: Error[] = [];
 
 		try {
-			while (this.#queue.length > 0) {
+			while (this.#queue.length) {
 				const event = this.#queue.shift()!;
 
 				if (event.type === ScopeEvent.Pending)
@@ -49,7 +55,7 @@ export class GlobalScope implements ReactiveObserver {
 					try {
 						handler(event);
 					} catch (error) {
-						errors.push(error);
+						errors.push(toError(error));
 					}
 				}
 			}
@@ -61,30 +67,37 @@ export class GlobalScope implements ReactiveObserver {
 			throw errors[0];
 
 		if (errors.length > 1)
-			throw new AggregateError(errors, "Errors occurred while flushing the global scope.");
+			throw new AggregateError(errors, "Multiple global scope event handlers failed.");
 	}
 
-	public readonly onEvent = (handler: GlobalScopeEventHandler): Unsubscriber => {
+	public onEvent(handler: GlobalScopeEventHandler): Unsubscriber {
 		this.#eventHandlers.push(handler);
-		return () => this.removeEventHandler(handler);
+
+		return () => {
+			const index = this.#eventHandlers.indexOf(handler);
+
+			if (index === -1)
+				return false;
+
+			this.#eventHandlers.splice(index, 1);
+			return true;
+		};
 	}
 
 	// @internal
-	public getOrInsertSlot = <T extends SlotData>(id: string, onInsert: () => T): T => {
-		if (!this.#slots[id])
-			this.#slots[id] = new Slot(onInsert());
-		return this.#slots[id].data as T;
-	}
+	public getOrInsertSlot<T extends SlotData>(id: string, onInsert: () => T): T {
+		let slot = this.#slots[id];
 
-	private readonly removeEventHandler = (handler: GlobalScopeEventHandler): boolean => {
-		const index = this.#eventHandlers.indexOf(handler);
+		if (!slot) {
+			slot = new Slot(onInsert());
+			this.#slots[id] = slot;
+		}
 
-		if (index === -1)
-			return false;
-
-		this.#eventHandlers.splice(index, 1);
-		return true;
+		return slot.data as T;
 	}
 }
 
 export type GlobalScopeEventHandler = <T extends ScopeEventType>(event: ScopeEvent<T>) => any;
+
+const toError = (error: unknown): Error =>
+	error instanceof Error ? error : new Error(String(error));

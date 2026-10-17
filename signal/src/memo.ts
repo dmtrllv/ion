@@ -7,6 +7,7 @@ export class Memo<T> implements ReactiveSource, ReactiveObserver {
 	readonly #closure: () => T;
 	readonly #observers = new Set<ReactiveObserver>();
 	readonly #dependencies = new Set<ReactiveSource>();
+
 	#nextDependencies: Set<ReactiveSource> | null = null;
 	#value!: T;
 	#isInitialized = false;
@@ -15,24 +16,23 @@ export class Memo<T> implements ReactiveSource, ReactiveObserver {
 
 	public constructor(closure: () => T) {
 		this.#closure = closure;
+		this.recompute();
+	}
+
+	public get isStale(): boolean {
+		return this.#isStale;
 	}
 
 	public readonly get = (): T => {
 		trackDependency(this);
-
-		if (this.#isStale)
-			this.recompute();
-
 		return this.#value;
 	};
 
-	public readonly inspect = (): T => {
-		return this.#value;
-	};
+	public readonly inspect = (): T => this.#value;
 
 	// @internal
 	public track(source: ReactiveSource): void {
-		if (this.#nextDependencies === null)
+		if (!this.#nextDependencies || this.#nextDependencies.has(source))
 			return;
 
 		this.#nextDependencies.add(source);
@@ -41,13 +41,20 @@ export class Memo<T> implements ReactiveSource, ReactiveObserver {
 
 	// @internal
 	public invalidate(): void {
-		if (this.#isStale)
+		this.#isStale = true;
+	}
+
+	// @internal
+	public flush(): void {
+		if (!this.#isStale)
 			return;
 
-		this.#isStale = true;
+		for (const dependency of this.#dependencies) {
+			if (dependency instanceof Memo)
+				dependency.flush();
+		}
 
-		for (const observer of [...this.#observers])
-			observer.invalidate();
+		this.recompute();
 	}
 
 	public addObserver(observer: ReactiveObserver): void {
@@ -64,7 +71,7 @@ export class Memo<T> implements ReactiveSource, ReactiveObserver {
 
 		this.#isComputing = true;
 
-		const previousDependencies = this.#dependencies;
+		const previousDependencies = new Set(this.#dependencies);
 		const nextDependencies = new Set<ReactiveSource>();
 		const wasInitialized = this.#isInitialized;
 		const previousValue = this.#value;
@@ -74,15 +81,15 @@ export class Memo<T> implements ReactiveSource, ReactiveObserver {
 		try {
 			const value = withObserver(this, this.#closure);
 
-			for (const source of previousDependencies) {
-				if (!nextDependencies.has(source))
-					source.removeObserver(this);
+			for (const dependency of previousDependencies) {
+				if (!nextDependencies.has(dependency))
+					dependency.removeObserver(this);
 			}
 
 			this.#dependencies.clear();
 
-			for (const source of nextDependencies)
-				this.#dependencies.add(source);
+			for (const dependency of nextDependencies)
+				this.#dependencies.add(dependency);
 
 			this.#value = value;
 			this.#isInitialized = true;
@@ -93,9 +100,9 @@ export class Memo<T> implements ReactiveSource, ReactiveObserver {
 					observer.invalidate();
 			}
 		} catch (error) {
-			for (const source of nextDependencies) {
-				if (!previousDependencies.has(source))
-					source.removeObserver(this);
+			for (const dependency of nextDependencies) {
+				if (!previousDependencies.has(dependency))
+					dependency.removeObserver(this);
 			}
 
 			this.#isStale = true;
@@ -113,7 +120,6 @@ export const createMemo = <T>(id: string, closure: () => T): Memo<T> => {
 
 export const memo = comptime((ctx) => {
 	let count = 0;
-
 	const fnRef = ctx.syntax.ref(createMemo);
 
 	return comptime.fn(<T>(ctx: Comptime.Context, value: Comptime.Expr<() => T>) => {

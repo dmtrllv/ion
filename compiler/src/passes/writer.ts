@@ -19,7 +19,7 @@ type ResolvedReference = {
 };
 
 type ComptimeManifest = {
-	readonly version: 1;
+	readonly version: number;
 	readonly exports: Record<string, {
 		readonly kind: string;
 		readonly module: string;
@@ -45,7 +45,6 @@ export class ComptimeWriter
 	public run(
 		compiler: Compiler,
 		evaluation: ComptimeEvaluation,
-		modules: ModuleMap
 	): void {
 		const emitResult = compiler.program.emit(
 			undefined,
@@ -57,7 +56,6 @@ export class ComptimeWriter
 					this.transformer(
 						compiler,
 						evaluation,
-						modules
 					),
 				],
 			},
@@ -80,7 +78,6 @@ export class ComptimeWriter
 	private readonly transformer = (
 		compiler: Compiler,
 		{ results, comptimeImports, comptimeDeclarations }: ComptimeEvaluation,
-		modules: ModuleMap,
 	): ts.TransformerFactory<ts.SourceFile> => {
 		return context => {
 			const isComptimeExport = (

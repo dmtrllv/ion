@@ -87,7 +87,8 @@ export class Module {
 	private resolveExports(typeChecker: ts.TypeChecker): Export[] {
 		const moduleSymbol = typeChecker.getSymbolAtLocation(this.sourceFile);
 
-		if (!moduleSymbol) return [];
+		if (!moduleSymbol) 
+			return [];
 
 		return typeChecker.getExportsOfModule(moduleSymbol).map((symbol) => ({
 			name: symbol.name,

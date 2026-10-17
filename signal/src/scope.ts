@@ -1,39 +1,29 @@
 
 import { Effect } from "./effect.js";
-import { GlobalScope } from "./global-scope.js";
 import { Memo } from "./memo.js";
 import { ReactiveObserver, ReactiveSource, Unsubscriber, withObserver } from "./reactive.js";
 import { Slot, SlotData } from "./slot.js";
 
-export type ScopeClosure<T> = () => T;
-
-type ActiveScope = Scope<any> | GlobalScope;
-
-let activeScope: ActiveScope = GlobalScope.get();
-
-// @internal
-export const getActiveScope = (): ActiveScope => activeScope;
-
-// @internal
-export const withActiveScope = <T>(scope: ActiveScope, closure: () => T): T => {
-	const previous = activeScope;
-	activeScope = scope;
-
-	try {
-		return closure();
-	} finally {
-		activeScope = previous;
-	}
-};
+export interface GlobalScope {
+	flush(): void;
+	onEvent(handler: ScopeEventHandler): Unsubscriber;
+	dispose(): void;
+}
 
 export class Scope<T> implements ReactiveObserver {
+	static readonly #globalScope = new Scope(() => { }, null);
+
+	public static get global(): GlobalScope {
+		return this.#globalScope;
+	}
+
 	readonly #closure: ScopeClosure<T>;
 	readonly #eventHandlers: ScopeEventHandler[] = [];
 	readonly #slots: Record<string, Slot> = {};
 	readonly #dependencies = new Set<ReactiveSource>();
 	readonly #children = new Set<Scope<any>>();
 
-	#parent: Scope<any> | GlobalScope | null;
+	#parent: Scope<any> | null;
 	#nextDependencies: Set<ReactiveSource> | null = null;
 	#result!: T;
 	#isInitialized = false;
@@ -55,10 +45,12 @@ export class Scope<T> implements ReactiveObserver {
 		return this.#isInvalidated;
 	}
 
-	public constructor(closure: ScopeClosure<T>) {
-		this.#closure = closure;
+	public get isDisposed(): boolean {
+		return this.#isDisposed;
+	}
 
-		const parent = activeScope;
+	public constructor(closure: ScopeClosure<T>, parent: Scope<any> | null = activeScope) {
+		this.#closure = closure;
 
 		if (parent && parent.isDisposed)
 			throw new Error("Cannot create a child scope in a disposed scope.");
@@ -80,10 +72,6 @@ export class Scope<T> implements ReactiveObserver {
 		this.#children.delete(scope);
 	}
 
-	public get isDisposed(): boolean {
-		return this.#isDisposed;
-	}
-
 	// @internal
 	public invalidate(): void {
 		if (this.#isRunning) {
@@ -98,20 +86,21 @@ export class Scope<T> implements ReactiveObserver {
 
 		if (!this.#hasQueuedInvalidation) {
 			this.#hasQueuedInvalidation = true;
-			this.#queuedEvents.push({ type: ScopeEvent.Invalidated, data: {} });
+			this.#queuedEvents.push({ type: ScopeEvent.Invalidated, data: {}, sender: this });
 		}
+
+		this.#emitEvents();
 	}
 
 	// @internal
 	public notifyPending(): void {
-		if (this.#isDisposed)
-			return;
-
-		if (this.#hasQueuedPending)
+		if (this.#isDisposed || this.#hasQueuedPending)
 			return;
 
 		this.#hasQueuedPending = true;
-		this.#queuedEvents.push({ type: ScopeEvent.Pending, data: {} });
+		this.#queuedEvents.push({ type: ScopeEvent.Pending, data: {}, sender: this });
+
+		this.#emitEvents();
 	}
 
 	// @internal
@@ -125,7 +114,6 @@ export class Scope<T> implements ReactiveObserver {
 		this.#nextDependencies.add(source);
 		source.addObserver(this);
 	}
-
 
 	public flush(): void {
 		if (this.#isDisposed)
@@ -235,9 +223,17 @@ export class Scope<T> implements ReactiveObserver {
 			this.#isInvalidated = true;
 			return { error: toError(error) };
 		} finally {
+			const wasInvalidatedWhileRunning = this.#wasInvalidatedWhileRunning;
+
 			this.#nextDependencies = null;
 			this.#isRunning = false;
 			this.#wasInvalidatedWhileRunning = false;
+
+			if (wasInvalidatedWhileRunning && !this.#hasQueuedInvalidation) {
+				this.#hasQueuedInvalidation = true;
+				this.#queuedEvents.push({ type: ScopeEvent.Invalidated, data: {}, sender: this });
+			}
+
 			this.#emitEvents();
 		}
 	}
@@ -268,6 +264,33 @@ export class Scope<T> implements ReactiveObserver {
 		};
 	}
 
+	// @internal
+	public receiveEvent(event: ScopeEvent<ScopeEventType>): void {
+		const errors: Error[] = [];
+
+		for (const handler of [...this.#eventHandlers]) {
+			try {
+				handler(event);
+			} catch (error) {
+				errors.push(toError(error));
+			}
+		}
+
+		if (this.#parent) {
+			try {
+				this.#parent.receiveEvent(event);
+			} catch (error) {
+				errors.push(toError(error));
+			}
+		}
+
+		if (errors.length === 1)
+			throw errors[0];
+
+		if (errors.length > 1)
+			throw new AggregateError(errors, "Multiple scope event handlers failed.");
+	}
+
 	readonly #emitEvents = (): void => {
 		if (this.#isRunning || this.#isEmitting)
 			return;
@@ -284,12 +307,10 @@ export class Scope<T> implements ReactiveObserver {
 				else if (event.type === ScopeEvent.Pending)
 					this.#hasQueuedPending = false;
 
-				for (const handler of [...this.#eventHandlers]) {
-					try {
-						handler(event);
-					} catch (error) {
-						errors.push(toError(error));
-					}
+				try {
+					this.receiveEvent(event);
+				} catch (error) {
+					errors.push(toError(error));
 				}
 			}
 		} finally {
@@ -370,11 +391,33 @@ export class Scope<T> implements ReactiveObserver {
 	}
 }
 
+
+export type ScopeClosure<T> = () => T;
+
+let activeScope: Scope<any> = Scope.global as Scope<any>;
+
+// @internal
+export const getActiveScope = (): Scope<any> => activeScope;
+
+// @internal
+export const withActiveScope = <T>(scope: Scope<any>, closure: () => T): T => {
+	const previous = activeScope;
+	activeScope = scope;
+
+	try {
+		return closure();
+	} finally {
+		activeScope = previous;
+	}
+};
+
+
 export type ScopeEventHandler = <T extends ScopeEventType>(event: ScopeEvent<T>) => any;
 
 export type ScopeEvent<T extends ScopeEventType> = {
 	readonly type: T;
 	readonly data: ScopeEvents[T];
+	readonly sender: Scope<any>;
 };
 
 const Invalidated = "INVALIDATED" as const;
@@ -395,5 +438,4 @@ export type Result<T> =
 	| { readonly data: T; readonly error?: undefined }
 	| { readonly data?: undefined; readonly error: Error };
 
-const toError = (error: unknown): Error =>
-	error instanceof Error ? error : new Error(String(error));
+const toError = (error: unknown): Error => error instanceof Error ? error : new Error(String(error));

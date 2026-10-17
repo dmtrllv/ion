@@ -1,149 +1,168 @@
 
-import { ReactiveObserver, ReactiveSource, Unsubscriber } from "./reactive.js";
-import { Scope, ScopeEvent, ScopeEventType } from "./scope.js";
-import { Slot, SlotData } from "./slot.js";
+//import { ReactiveObserver, ReactiveSource, Unsubscriber } from "./reactive.js";
+//import { Scope, ScopeEvent, ScopeEventType } from "./scope.js";
+//import { Slot, SlotData } from "./slot.js";
 
-export class GlobalScope implements ReactiveObserver {
-	static readonly #instance = new GlobalScope();
-	
-	public static get(): GlobalScope {
-		return this.#instance;
-	}
-	
-	readonly #eventHandlers: GlobalScopeEventHandler[] = [];
-	readonly #slots: Record<string, Slot> = {};
-	readonly #queue: ScopeEvent<ScopeEventType>[] = [];
-	readonly #children = new Set<Scope<any>>();
-	
-	#hasQueuedPending = false;
-	#isFlushing = false;
-	#isDisposed: boolean = false;
+//export class GlobalScope implements ReactiveObserver {
+//	static readonly #instance = new GlobalScope();
 
-	private constructor() { }
+//	public static get(): GlobalScope {
+//		return this.#instance;
+//	}
 
-	//
-	public get isDisposed(): boolean {
-		return this.#isDisposed;
-	}
+//	readonly #eventHandlers: GlobalScopeEventHandler[] = [];
+//	readonly #slots: Record<string, Slot> = {};
+//	readonly #queue: ScopeEvent<ScopeEventType>[] = [];
+//	readonly #children = new Set<Scope<any>>();
 
-	// @internal
-	public invalidate(): void {
-		if (this.#hasQueuedPending)
-			return;
+//	#hasQueuedPending = false;
+//	#isFlushing = false;
+//	#isDisposed: boolean = false;
 
-		this.#hasQueuedPending = true;
-		this.#queue.push({ type: ScopeEvent.Pending, data: {} });
-	}
+//	private constructor() { }
 
-	// @internal 
-	public addChild(scope: Scope<any>) {
-		this.#children.add(scope);
-	}
+//	//
+//	public get isDisposed(): boolean {
+//		return this.#isDisposed;
+//	}
 
-	// @internal 
-	public removeChild(scope: Scope<any>) {
-		this.#children.delete(scope);
-	}
+//	// @internal
+//	public invalidate(): void {
+//		if (this.#hasQueuedPending)
+//			return;
 
-	// @internal
-	public track(_source: ReactiveSource): void { }
+//		this.#hasQueuedPending = true;
+//		this.#queue.push({ type: ScopeEvent.Pending, data: {}, sender: this });
+//	}
 
-	// @internal
-	public flush(): void {
-		if (this.#isFlushing)
-			throw new Error("Cannot flush the global scope while it is already flushing.");
+//	// @internal 
+//	public addChild(scope: Scope<any>) {
+//		this.#children.add(scope);
+//	}
 
-		this.#isFlushing = true;
-		const errors: Error[] = [];
+//	// @internal 
+//	public removeChild(scope: Scope<any>) {
+//		this.#children.delete(scope);
+//	}
 
-		try {
-			while (this.#queue.length) {
-				const event = this.#queue.shift()!;
+//	// @internal
+//	public track(_source: ReactiveSource): void { }
 
-				if (event.type === ScopeEvent.Pending)
-					this.#hasQueuedPending = false;
+//	// @internal
+//	public flush(): void {
+//		if (this.#isFlushing)
+//			throw new Error("Cannot flush the global scope while it is already flushing.");
 
-				for (const handler of [...this.#eventHandlers]) {
-					try {
-						handler(event);
-					} catch (error) {
-						errors.push(toError(error));
-					}
-				}
-			}
-		} finally {
-			this.#isFlushing = false;
-		}
+//		this.#isFlushing = true;
+//		const errors: Error[] = [];
 
-		if (errors.length === 1)
-			throw errors[0];
+//		try {
+//			while (this.#queue.length) {
+//				const event = this.#queue.shift()!;
 
-		if (errors.length > 1)
-			throw new AggregateError(errors, "Multiple global scope event handlers failed.");
-	}
+//				if (event.type === ScopeEvent.Pending)
+//					this.#hasQueuedPending = false;
 
-	public onEvent(handler: GlobalScopeEventHandler): Unsubscriber {
-		this.#eventHandlers.push(handler);
+//				for (const handler of [...this.#eventHandlers]) {
+//					try {
+//						handler(event);
+//					} catch (error) {
+//						errors.push(toError(error));
+//					}
+//				}
+//			}
+//		} finally {
+//			this.#isFlushing = false;
+//		}
 
-		return () => {
-			const index = this.#eventHandlers.indexOf(handler);
+//		if (errors.length === 1)
+//			throw errors[0];
 
-			if (index === -1)
-				return false;
+//		if (errors.length > 1)
+//			throw new AggregateError(errors, "Multiple global scope event handlers failed.");
+//	}
 
-			this.#eventHandlers.splice(index, 1);
-			return true;
-		};
-	}
+//	// @internal
+//	public receiveEvent(event: ScopeEvent<ScopeEventType>): void {
+//		const errors: Error[] = [];
 
-	// @internal
-	public getOrInsertSlot<T extends SlotData>(id: string, onInsert: () => T): T {
-		let slot = this.#slots[id];
+//		for (const handler of [...this.#eventHandlers]) {
+//			try {
+//				handler(event);
+//			} catch (error) {
+//				errors.push(toError(error));
+//			}
+//		}
 
-		if (!slot) {
-			slot = new Slot(onInsert());
-			this.#slots[id] = slot;
-		}
+//		if (errors.length === 1)
+//			throw errors[0];
 
-		return slot.data as T;
-	}
+//		if (errors.length > 1)
+//			throw new AggregateError(errors, "Multiple global scope event handlers failed.");
+//	}
 
-	public dispose(): void {
-		if (this.#isDisposed)
-			return;
+//	public onEvent(handler: GlobalScopeEventHandler): Unsubscriber {
+//		this.#eventHandlers.push(handler);
 
-		if (this.#isFlushing)
-			throw new Error("Cannot dispose a scope while it is running or flushing.");
+//		return () => {
+//			const index = this.#eventHandlers.indexOf(handler);
 
-		this.#isDisposed = true;
+//			if (index === -1)
+//				return false;
 
-		const errors: Error[] = [];
+//			this.#eventHandlers.splice(index, 1);
+//			return true;
+//		};
+//	}
 
-		for (const child of [...this.#children]) {
-			try {
-				child.dispose();
-			} catch (error) {
-				errors.push(toError(error));
-			}
-		}
+//	// @internal
+//	public getOrInsertSlot<T extends SlotData>(id: string, onInsert: () => T): T {
+//		let slot = this.#slots[id];
 
-		this.#children.clear();
+//		if (!slot) {
+//			slot = new Slot(onInsert());
+//			this.#slots[id] = slot;
+//		}
 
-		for (const id of Object.keys(this.#slots))
-			delete this.#slots[id];
+//		return slot.data as T;
+//	}
 
-		this.#hasQueuedPending = false;
-		this.#eventHandlers.length = 0;
+//	public dispose(): void {
+//		if (this.#isDisposed)
+//			return;
 
-		if (errors.length === 1)
-			throw errors[0];
+//		if (this.#isFlushing)
+//			throw new Error("Cannot dispose a scope while it is running or flushing.");
 
-		if (errors.length > 1)
-			throw new AggregateError(errors, "Multiple reactive computations failed during scope disposal.");
-	}
-}
+//		this.#isDisposed = true;
 
-export type GlobalScopeEventHandler = <T extends ScopeEventType>(event: ScopeEvent<T>) => any;
+//		const errors: Error[] = [];
 
-const toError = (error: unknown): Error =>
-	error instanceof Error ? error : new Error(String(error));
+//		for (const child of [...this.#children]) {
+//			try {
+//				child.dispose();
+//			} catch (error) {
+//				errors.push(toError(error));
+//			}
+//		}
+
+//		this.#children.clear();
+
+//		for (const id of Object.keys(this.#slots))
+//			delete this.#slots[id];
+
+//		this.#hasQueuedPending = false;
+//		this.#eventHandlers.length = 0;
+
+//		if (errors.length === 1)
+//			throw errors[0];
+
+//		if (errors.length > 1)
+//			throw new AggregateError(errors, "Multiple reactive computations failed during scope disposal.");
+//	}
+//}
+
+//export type GlobalScopeEventHandler = <T extends ScopeEventType>(event: ScopeEvent<T>) => any;
+
+//const toError = (error: unknown): Error =>
+//	error instanceof Error ? error : new Error(String(error));

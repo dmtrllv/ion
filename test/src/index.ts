@@ -1,5 +1,5 @@
 
-//import { effect, scope, ScopeEvent, signal } from "@ion/signal";
+import { effect, Scope, scope, ScopeEvent, signal } from "@ion/signal";
 
 //const app = scope(() => {
 //	const title = signal("todos");
@@ -70,40 +70,20 @@
 //	process();
 //}
 
-import { effect, scope, signal } from "@ion/signal";
-
-let childCleanupCount = 0;
-
-const parent = scope(() => {
-	const value = signal(1);
-
-	const child = scope(() => {
-		effect(() => {
-			console.log("Child effect:", value.get());
-
-			return () => {
-				console.log("Child cleanup");
-				childCleanupCount++;
-			};
-		});
-
-		return {};
-	});
-
-	return { value, child };
+Scope.global.onEvent((e) => {
+	switch(e.type) {
+		case ScopeEvent.Pending:
+		e.sender.flush();
+		break;
+	}
 });
 
-const result = parent.run();
-if (result.error) throw result.error;
+const list = signal([1]);
 
-result.data.child.run();
-parent.flush();
-result.data.child.flush();
+effect(() => {
+	console.log(list.get());
+});
 
-console.log("--- Rerun parent ---");
-parent.run();
-
-console.log("--- Dispose parent ---");
-parent.dispose();
-
-console.log("Child cleanup count:", childCleanupCount);
+setTimeout(() => {
+	list.update(list => list.push(list.length + 1));
+}, 1000);

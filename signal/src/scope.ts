@@ -43,6 +43,7 @@ export class Scope<T> implements ReactiveObserver {
 	#hasQueuedInvalidation = false;
 	#hasQueuedPending = false;
 	#queuedEvents: ScopeEvent<ScopeEventType>[] = [];
+	#isDisposed = false;
 
 	public get isInitialized(): boolean {
 		return this.#isInitialized;
@@ -54,6 +55,10 @@ export class Scope<T> implements ReactiveObserver {
 
 	public constructor(closure: ScopeClosure<T>) {
 		this.#closure = closure;
+	}
+
+	public get isDisposed(): boolean {
+		return this.#isDisposed;
 	}
 
 	// @internal
@@ -76,6 +81,9 @@ export class Scope<T> implements ReactiveObserver {
 
 	// @internal
 	public notifyPending(): void {
+		if (this.#isDisposed)
+			return;
+
 		if (this.#hasQueuedPending)
 			return;
 
@@ -85,6 +93,9 @@ export class Scope<T> implements ReactiveObserver {
 
 	// @internal
 	public track(source: ReactiveSource): void {
+		if (this.#isDisposed)
+			return;
+
 		if (!this.#nextDependencies || this.#nextDependencies.has(source))
 			return;
 
@@ -94,6 +105,9 @@ export class Scope<T> implements ReactiveObserver {
 
 
 	public flush(): void {
+		if (this.#isDisposed)
+			throw new Error("Cannot flush a disposed scope.");
+
 		if (this.#isFlushing)
 			throw new Error("Cannot flush a scope while it is already flushing.");
 
@@ -152,8 +166,10 @@ export class Scope<T> implements ReactiveObserver {
 		);
 	};
 
-
 	public run(): Result<T> {
+		if (this.#isDisposed)
+			return { error: new Error("Cannot run a disposed scope.") };
+
 		if (this.#isRunning)
 			return { error: new Error("Cannot run a scope while it is already running.") };
 
@@ -263,6 +279,53 @@ export class Scope<T> implements ReactiveObserver {
 		if (errors.length > 1)
 			throw new AggregateError(errors, "Multiple scope event handlers failed.");
 	};
+
+	public dispose(): void {
+		if (this.#isDisposed)
+			return;
+
+		if (this.#isRunning || this.#isFlushing)
+			throw new Error("Cannot dispose a scope while it is running or flushing.");
+
+		this.#isDisposed = true;
+
+		const errors: Error[] = [];
+
+		for (const dependency of this.#dependencies)
+			dependency.removeObserver(this);
+
+		this.#dependencies.clear();
+
+		for (const slot of Object.values(this.#slots)) {
+			const value = slot.data;
+
+			if (!(value instanceof Effect) && !(value instanceof Memo))
+				continue;
+
+			try {
+				const result = value.dispose();
+
+				if (result.error)
+					errors.push(result.error);
+			} catch (error) {
+				errors.push(toError(error));
+			}
+		}
+
+		for (const id of Object.keys(this.#slots))
+			delete this.#slots[id];
+
+		this.#queuedEvents = [];
+		this.#hasQueuedInvalidation = false;
+		this.#hasQueuedPending = false;
+		this.#eventHandlers.length = 0;
+
+		if (errors.length === 1)
+			throw errors[0];
+
+		if (errors.length > 1)
+			throw new AggregateError(errors, "Multiple reactive computations failed during scope disposal.");
+	}
 }
 
 export type ScopeEventHandler = <T extends ScopeEventType>(event: ScopeEvent<T>) => any;

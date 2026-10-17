@@ -92,7 +92,7 @@ export class Effect implements ReactiveObserver {
 			const result: unknown = withActiveScope(this.#scope, () => withObserver(this, this.#closure));
 
 			if (isThenable(result)) {
-				void Promise.resolve(result).catch(() => {});
+				void Promise.resolve(result).catch(() => { });
 				throw new Error("Effect closures must be synchronous.");
 			}
 
@@ -116,10 +116,15 @@ export class Effect implements ReactiveObserver {
 
 			return { data: {} };
 		} catch (error) {
-			for (const dependency of nextDependencies) {
-				if (!previousDependencies.has(dependency))
+			for (const dependency of previousDependencies) {
+				if (!nextDependencies.has(dependency))
 					dependency.removeObserver(this);
 			}
+
+			this.#dependencies.clear();
+
+			for (const dependency of nextDependencies)
+				this.#dependencies.add(dependency);
 
 			this.#cleanup = undefined;
 			this.#isPending = false;

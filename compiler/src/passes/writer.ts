@@ -1,3 +1,4 @@
+
 import * as ts from "typescript";
 import { dirname, relative, resolve, sep } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
@@ -32,24 +33,44 @@ type PackageInfo = {
 	readonly manifest: ComptimeManifest;
 };
 
+type MacroSource = {
+	readonly sourceFile: ts.SourceFile;
+	readonly typeChecker: ts.TypeChecker;
+};
+
 export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Expression>]> {
-	public run(compiler: Compiler, results: Map<ts.CallExpression, ts.Expression>,): void {
-		const emitResult = compiler.program.emit(undefined, undefined, undefined, false, { before: [this.transformer(compiler, results)] });
+	public run(
+		compiler: Compiler,
+		results: Map<ts.CallExpression, ts.Expression>,
+	): void {
+		const emitResult = compiler.program.emit(
+			undefined,
+			undefined,
+			undefined,
+			false,
+			{ before: [this.transformer(compiler, results)] },
+		);
 
 		if (emitResult.emitSkipped || emitResult.diagnostics.length > 0) {
-			const diagnostics = ts.formatDiagnosticsWithColorAndContext(emitResult.diagnostics, {
-				getCurrentDirectory: ts.sys.getCurrentDirectory,
-				getCanonicalFileName: (fileName) => fileName,
-				getNewLine: () => ts.sys.newLine,
-			});
+			const diagnostics = ts.formatDiagnosticsWithColorAndContext(
+				emitResult.diagnostics,
+				{
+					getCurrentDirectory: ts.sys.getCurrentDirectory,
+					getCanonicalFileName: fileName => fileName,
+					getNewLine: () => ts.sys.newLine,
+				},
+			);
 
 			throw new RefError(`TypeScript emit failed:\n${diagnostics}`);
 		}
 	}
 
-	private readonly transformer = (compiler: Compiler, results: Map<ts.CallExpression, ts.Expression>): ts.TransformerFactory<ts.SourceFile> => {
-		return (context) => {
-			const visit: ts.Visitor = (node) => {
+	private readonly transformer = (
+		compiler: Compiler,
+		results: Map<ts.CallExpression, ts.Expression>,
+	): ts.TransformerFactory<ts.SourceFile> => {
+		return context => {
+			const visit: ts.Visitor = node => {
 				if (ts.isCallExpression(node)) {
 					const result = results.get(node);
 
@@ -61,7 +82,7 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 				return ts.visitEachChild(node, visit, context);
 			};
 
-			return (sourceFile) => {
+			return sourceFile => {
 				const imports = this.createReferenceImports(
 					compiler,
 					sourceFile,
@@ -84,7 +105,10 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 				while (index < statements.length) {
 					const statement = statements[index]!;
 
-					if (!ts.isExpressionStatement(statement) || !ts.isStringLiteral(statement.expression)) {
+					if (
+						!ts.isExpressionStatement(statement) ||
+						!ts.isStringLiteral(statement.expression)
+					) {
 						break;
 					}
 
@@ -113,12 +137,9 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 				continue;
 			}
 
-			const macroSourceFile = this.getDeclarationSourceFile(
-				compiler,
-				call,
-			);
+			const macroSource = this.getMacroSource(compiler, call);
 
-			if (!macroSourceFile) {
+			if (!macroSource) {
 				continue;
 			}
 
@@ -131,13 +152,13 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 						const reference = this.resolveReference(
 							compiler,
 							sourceFile,
-							macroSourceFile,
+							macroSource,
 							name,
 						);
 
 						if (
-							reference.sourceFile.fileName !==
-							sourceFile.fileName
+							resolve(reference.sourceFile.fileName) !==
+							resolve(sourceFile.fileName)
 						) {
 							const key = [
 								reference.moduleSpecifier,
@@ -156,10 +177,7 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 			visit(expression);
 		}
 
-		const grouped = new Map<
-			string,
-			ResolvedReference[]
-		>();
+		const grouped = new Map<string, ResolvedReference[]>();
 
 		for (const reference of references.values()) {
 			if (
@@ -197,14 +215,12 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 		const imports: ts.ImportDeclaration[] = [];
 
 		for (const [moduleSpecifier, group] of grouped) {
-			const elements = group.map((reference) =>
+			const elements = group.map(reference =>
 				ts.factory.createImportSpecifier(
 					false,
 					reference.exportName === reference.localName
 						? undefined
-						: ts.factory.createIdentifier(
-							reference.exportName,
-						),
+						: ts.factory.createIdentifier(reference.exportName),
 					ts.factory.createIdentifier(reference.localName),
 				),
 			);
@@ -247,7 +263,7 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 			{},
 			{
 				...ts.sys,
-				onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
+				onUnRecoverableConfigFileDiagnostic: diagnostic => {
 					throw new RefError(
 						ts.flattenDiagnosticMessageText(
 							diagnostic.messageText,
@@ -286,34 +302,29 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 			);
 		}
 
-		return resolve(
-			outDir,
-			sourceRelativePath.replace(/\.(tsx?|mts|cts)$/, ".js"),
+		const outputRelativePath = sourceRelativePath.replace(
+			/\.(tsx?|mts|cts)$/,
+			".js",
 		);
+
+		return resolve(outDir, outputRelativePath);
 	}
 
-
-
 	private resolveReference(
-		compiler: Compiler,
+		_compiler: Compiler,
 		consumer: ts.SourceFile,
-		macroSourceFile: ts.SourceFile,
+		macroSource: MacroSource,
 		name: string,
 	): ResolvedReference {
-		const localSymbol = this.findTopLevelSymbol(
-			compiler,
+		const macroSourceFile = macroSource.sourceFile;
+		const typeChecker = macroSource.typeChecker;
+
+		const targetSymbol = this.findReferenceSymbol(
+			typeChecker,
 			macroSourceFile,
 			name,
 		);
 
-		if (!localSymbol) {
-			throw new RefError(
-				`Comptime reference "${name}" could not be resolved in ` +
-				`"${macroSourceFile.fileName}".`,
-			);
-		}
-
-		const targetSymbol = this.resolveAlias(compiler, localSymbol);
 		const declaration =
 			targetSymbol.valueDeclaration ?? targetSymbol.declarations?.[0];
 
@@ -324,15 +335,14 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 		}
 
 		const declarationSourceFile = declaration.getSourceFile();
-		let targetSourceFile = declarationSourceFile;
-		let resolvedSymbol = targetSymbol;
-		let targetModulePath: string;
 		const targetPackage = this.findPackageRoot(
 			declarationSourceFile.fileName,
 		);
 
+		let targetModulePath: string;
+		let exported: ts.Symbol;
+
 		if (declarationSourceFile.isDeclarationFile) {
-			// External package: use its manifest to find the runtime module.
 			const declarationRelativePath = relative(
 				targetPackage.root,
 				resolve(declarationSourceFile.fileName),
@@ -342,9 +352,12 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 				.replace(/^types\//, "src/")
 				.replace(/\.d\.(?:ts|mts|cts)$/, match => {
 					switch (match) {
-						case ".d.mts": return ".mts";
-						case ".d.cts": return ".cts";
-						default: return ".ts";
+						case ".d.mts":
+							return ".mts";
+						case ".d.cts":
+							return ".cts";
+						default:
+							return ".ts";
 					}
 				});
 
@@ -369,73 +382,52 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 				manifestEntry.runtimeModule,
 			);
 
-			// Keep declaration-based symbol identity; do not require external
-			// implementation source files to be part of the consumer's program.
-			const moduleSymbol = compiler.typeChecker.getSymbolAtLocation(
+			const moduleSymbol = typeChecker.getSymbolAtLocation(
 				declarationSourceFile,
 			);
 
-			const exported = moduleSymbol
-				? compiler.typeChecker.getExportsOfModule(moduleSymbol).find(
+			const matchingExport = moduleSymbol
+				? typeChecker.getExportsOfModule(moduleSymbol).find(
 					symbol =>
-						this.resolveAlias(compiler, symbol) === targetSymbol,
+						this.resolveAliasWithChecker(typeChecker, symbol) ===
+						targetSymbol,
 				)
 				: undefined;
 
-			if (!exported) {
+			if (!matchingExport) {
 				throw new RefError(
 					`Comptime reference "${name}" must refer to an exported value. ` +
 					`Its declaration is in "${declarationSourceFile.fileName}".`,
 				);
 			}
 
-			const consumerPackage = this.findPackageRoot(consumer.fileName);
-			const consumerOutputPath = this.getOutputModulePath(
-				consumerPackage,
-				consumer,
+			exported = matchingExport;
+		} else {
+			const moduleSymbol = typeChecker.getSymbolAtLocation(
+				declarationSourceFile,
 			);
 
-			let moduleSpecifier = relative(
-				dirname(consumerOutputPath),
-				targetModulePath,
-			).replace(/\\/g, "/");
+			const matchingExport = moduleSymbol
+				? typeChecker.getExportsOfModule(moduleSymbol).find(
+					symbol =>
+						this.resolveAliasWithChecker(typeChecker, symbol) ===
+						targetSymbol,
+				)
+				: undefined;
 
-			if (!moduleSpecifier.startsWith(".")) {
-				moduleSpecifier = `./${moduleSpecifier}`;
+			if (!matchingExport) {
+				throw new RefError(
+					`Comptime reference "${name}" must refer to an exported value. ` +
+					`Its declaration is in "${declarationSourceFile.fileName}".`,
+				);
 			}
 
-			return {
-				sourceFile: declarationSourceFile,
-				exportName: exported.name,
-				localName: name,
-				moduleSpecifier,
-			};
-		}
-
-		// Same project: map the actual source module to its emitted JS module.
-		const moduleSymbol = compiler.typeChecker.getSymbolAtLocation(
-			targetSourceFile,
-		);
-
-		const exported = moduleSymbol
-			? compiler.typeChecker.getExportsOfModule(moduleSymbol).find(
-				symbol =>
-					this.resolveAlias(compiler, symbol) === resolvedSymbol,
-			)
-			: undefined;
-
-		if (!exported) {
-			throw new RefError(
-				`Comptime reference "${name}" must refer to an exported value. ` +
-				`Its declaration is in "${targetSourceFile.fileName}".`,
+			exported = matchingExport;
+			targetModulePath = this.getRuntimeOutputModule(
+				targetPackage,
+				declarationSourceFile,
 			);
 		}
-
-		targetModulePath = this.getRuntimeOutputModule(
-			targetPackage,
-			targetSourceFile,
-			resolvedSymbol,
-		);
 
 		const consumerPackage = this.findPackageRoot(consumer.fileName);
 		const consumerOutputPath = this.getOutputModulePath(
@@ -453,19 +445,69 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 		}
 
 		return {
-			sourceFile: targetSourceFile,
+			sourceFile: declarationSourceFile,
 			exportName: exported.name,
 			localName: name,
 			moduleSpecifier,
 		};
 	}
 
+	private findReferenceSymbol(
+		typeChecker: ts.TypeChecker,
+		sourceFile: ts.SourceFile,
+		name: string,
+	): ts.Symbol {
+		const symbols = new Set<ts.Symbol>();
 
+		const visit = (node: ts.Node): void => {
+			if (
+				ts.isCallExpression(node) &&
+				ts.isPropertyAccessExpression(node.expression) &&
+				node.expression.name.text === "ref" &&
+				ts.isPropertyAccessExpression(node.expression.expression) &&
+				node.expression.expression.name.text === "syntax" &&
+				node.arguments.length > 0 &&
+				ts.isIdentifier(node.arguments[0]!) &&
+				node.arguments[0]!.text === name
+			) {
+				const symbol = typeChecker.getSymbolAtLocation(
+					node.arguments[0]!,
+				);
 
-	private getDeclarationSourceFile(
+				if (symbol) {
+					symbols.add(
+						this.resolveAliasWithChecker(typeChecker, symbol),
+					);
+				}
+			}
+
+			ts.forEachChild(node, visit);
+		};
+
+		visit(sourceFile);
+
+		if (symbols.size === 0) {
+			throw new RefError(
+				`Comptime reference "${name}" could not be resolved in ` +
+				`"${sourceFile.fileName}".`,
+			);
+		}
+
+		if (symbols.size > 1) {
+			throw new RefError(
+				`Comptime reference "${name}" is ambiguous in ` +
+				`"${sourceFile.fileName}": multiple syntax.ref calls ` +
+				`refer to different symbols.`,
+			);
+		}
+
+		return symbols.values().next().value!;
+	}
+
+	private getMacroSource(
 		compiler: Compiler,
 		call: ts.CallExpression,
-	): ts.SourceFile | undefined {
+	): MacroSource | undefined {
 		const symbol = compiler.typeChecker.getSymbolAtLocation(
 			call.expression,
 		);
@@ -475,73 +517,79 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 		}
 
 		const target = this.resolveAlias(compiler, symbol);
-		const declaration = target.valueDeclaration ??
-			target.declarations?.[0];
+		const declaration =
+			target.valueDeclaration ?? target.declarations?.[0];
 
-		return declaration?.getSourceFile();
-	}
-
-	private findTopLevelSymbol(
-		compiler: Compiler,
-		sourceFile: ts.SourceFile,
-		name: string,
-	): ts.Symbol | undefined {
-		const find = (identifier: ts.Identifier) =>
-			identifier.text === name
-				? compiler.typeChecker.getSymbolAtLocation(identifier)
-				: undefined;
-
-		for (const statement of sourceFile.statements) {
-			if (ts.isVariableStatement(statement)) {
-				for (const declaration of statement.declarationList.declarations) {
-					if (ts.isIdentifier(declaration.name)) {
-						const symbol = find(declaration.name);
-						if (symbol) return symbol;
-					}
-				}
-			}
-
-			if (
-				(ts.isFunctionDeclaration(statement) ||
-					ts.isClassDeclaration(statement) ||
-					ts.isEnumDeclaration(statement)) &&
-				statement.name?.text === name
-			) {
-				const symbol = find(statement.name);
-				if (symbol) return symbol;
-			}
-
-			if (ts.isImportDeclaration(statement)) {
-				const clause = statement.importClause;
-
-				if (!clause) continue;
-
-				if (clause.name?.text === name) {
-					const symbol = find(clause.name);
-					if (symbol) return symbol;
-				}
-
-				const bindings = clause.namedBindings;
-
-				if (bindings && ts.isNamespaceImport(bindings)) {
-					if (bindings.name.text === name) {
-						const symbol = find(bindings.name);
-						if (symbol) return symbol;
-					}
-				}
-
-				if (bindings && ts.isNamedImports(bindings)) {
-					for (const element of bindings.elements) {
-						if (element.name.text === name) {
-							const symbol = find(element.name);
-							if (symbol) return symbol;
-						}
-					}
-				}
-			}
+		if (!declaration) {
+			return undefined;
 		}
 
-		return undefined;
+		const declarationSource = declaration.getSourceFile();
+		const pkg = this.findPackageRoot(declarationSource.fileName);
+
+		const entry = Object.values(pkg.manifest.exports).find(
+			item => item.name === target.name,
+		);
+
+		if (!entry?.source) {
+			throw new RefError(
+				`Could not find the source file for comptime export ` +
+				`"${target.name}" in "${pkg.root}/comptime.manifest.json".`,
+			);
+		}
+
+		const sourcePath = resolve(pkg.root, entry.source);
+		const configPath = ts.findConfigFile(
+			pkg.root,
+			ts.sys.fileExists,
+			"tsconfig.json",
+		);
+
+		if (!configPath) {
+			throw new RefError(
+				`Could not find tsconfig.json for "${pkg.root}".`,
+			);
+		}
+
+		const config = ts.getParsedCommandLineOfConfigFile(
+			configPath,
+			{},
+			{
+				...ts.sys,
+				onUnRecoverableConfigFileDiagnostic: diagnostic => {
+					throw new RefError(
+						ts.flattenDiagnosticMessageText(
+							diagnostic.messageText,
+							ts.sys.newLine,
+						),
+					);
+				},
+			},
+		);
+
+		if (!config) {
+			throw new RefError(`Could not parse "${configPath}".`);
+		}
+
+		const program = ts.createProgram({
+			rootNames: [
+				...new Set([...config.fileNames, sourcePath]),
+			],
+			options: config.options,
+		});
+
+		const sourceFile = program.getSourceFile(sourcePath);
+
+		if (!sourceFile) {
+			throw new RefError(
+				`Could not load comptime source "${sourcePath}".`,
+			);
+		}
+
+		return {
+			sourceFile,
+			typeChecker: program.getTypeChecker(),
+		};
 	}
 
 	private resolveAlias(
@@ -553,11 +601,179 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 		while ((current.flags & ts.SymbolFlags.Alias) !== 0) {
 			const target = compiler.typeChecker.getAliasedSymbol(current);
 
-			if (target === current) break;
+			if (target === current) {
+				break;
+			}
+
 			current = target;
 		}
 
 		return current;
+	}
+
+	private resolveAliasWithChecker(
+		typeChecker: ts.TypeChecker,
+		symbol: ts.Symbol,
+	): ts.Symbol {
+		let current = symbol;
+
+		while ((current.flags & ts.SymbolFlags.Alias) !== 0) {
+			const target = typeChecker.getAliasedSymbol(current);
+
+			if (target === current) {
+				break;
+			}
+
+			current = target;
+		}
+
+		return current;
+	}
+
+	private findTopLevelSymbol(
+		compiler: Compiler,
+		sourceFile: ts.SourceFile,
+		name: string,
+	): ts.Symbol | undefined {
+		const moduleSymbol = compiler.typeChecker.getSymbolAtLocation(
+			sourceFile,
+		);
+
+		if (moduleSymbol) {
+			const exported = compiler.typeChecker
+				.getExportsOfModule(moduleSymbol)
+				.find(symbol => symbol.name === name);
+
+			if (exported) {
+				return exported;
+			}
+		}
+
+		for (const statement of sourceFile.statements) {
+			if (
+				ts.isImportDeclaration(statement) &&
+				statement.importClause
+			) {
+				const clause = statement.importClause;
+
+				if (clause.name?.text === name) {
+					return compiler.typeChecker.getSymbolAtLocation(
+						clause.name,
+					);
+				}
+
+				if (clause.namedBindings) {
+					if (ts.isNamespaceImport(clause.namedBindings)) {
+						if (clause.namedBindings.name.text === name) {
+							return compiler.typeChecker.getSymbolAtLocation(
+								clause.namedBindings.name,
+							);
+						}
+					} else {
+						for (const element of clause.namedBindings.elements) {
+							if (element.name.text === name) {
+								return compiler.typeChecker.getSymbolAtLocation(
+									element.name,
+								);
+							}
+						}
+					}
+				}
+			}
+
+			if (
+				ts.isVariableStatement(statement) &&
+				statement.declarationList.declarations.some(declaration =>
+					this.bindingContainsName(declaration.name, name),
+				)
+			) {
+				return this.findDeclarationSymbol(
+					compiler,
+					statement.declarationList.declarations,
+					name,
+				);
+			}
+
+			if (
+				(ts.isFunctionDeclaration(statement) ||
+					ts.isClassDeclaration(statement) ||
+					ts.isInterfaceDeclaration(statement) ||
+					ts.isTypeAliasDeclaration(statement) ||
+					ts.isEnumDeclaration(statement)) &&
+				statement.name?.text === name
+			) {
+				return compiler.typeChecker.getSymbolAtLocation(
+					statement.name,
+				);
+			}
+		}
+
+		return undefined;
+	}
+
+	private bindingContainsName(
+		name: ts.BindingName,
+		target: string,
+	): boolean {
+		if (ts.isIdentifier(name)) {
+			return name.text === target;
+		}
+
+		return name.elements.some(element =>
+			ts.isOmittedExpression(element)
+				? false
+				: this.bindingContainsName(element.name, target),
+		);
+	}
+
+	private findDeclarationSymbol(
+		compiler: Compiler,
+		declarations: readonly ts.VariableDeclaration[],
+		name: string,
+	): ts.Symbol | undefined {
+		for (const declaration of declarations) {
+			const symbol = this.findBindingSymbol(
+				compiler,
+				declaration.name,
+				name,
+			);
+
+			if (symbol) {
+				return symbol;
+			}
+		}
+
+		return undefined;
+	}
+
+	private findBindingSymbol(
+		compiler: Compiler,
+		binding: ts.BindingName,
+		name: string,
+	): ts.Symbol | undefined {
+		if (ts.isIdentifier(binding)) {
+			return binding.text === name
+				? compiler.typeChecker.getSymbolAtLocation(binding)
+				: undefined;
+		}
+
+		for (const element of binding.elements) {
+			if (ts.isOmittedExpression(element)) {
+				continue;
+			}
+
+			const symbol = this.findBindingSymbol(
+				compiler,
+				element.name,
+				name,
+			);
+
+			if (symbol) {
+				return symbol;
+			}
+		}
+
+		return undefined;
 	}
 
 	private hasImport(
@@ -566,7 +782,7 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 		exportName: string,
 		localName: string,
 	): boolean {
-		return sourceFile.statements.some((statement) => {
+		return sourceFile.statements.some(statement => {
 			if (
 				!ts.isImportDeclaration(statement) ||
 				!ts.isStringLiteral(statement.moduleSpecifier) ||
@@ -582,14 +798,13 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 			}
 
 			return bindings.elements.some(
-				(element) =>
+				element =>
 					element.name.text === localName &&
 					(element.propertyName?.text ?? element.name.text) ===
 					exportName,
 			);
 		});
 	}
-
 
 	private findPackageRoot(sourcePath: string): PackageInfo {
 		let directory = dirname(sourcePath);
@@ -651,8 +866,6 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 	private getRuntimeOutputModule(
 		pkg: PackageInfo,
 		sourceFile: ts.SourceFile,
-		// @ts-expect-error
-		targetSymbol: ts.Symbol,
 	): string {
 		return this.getOutputModulePath(pkg, sourceFile);
 	}
@@ -660,6 +873,6 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 
 export class RefError extends Error {
 	public constructor(error: string) {
-		super(error)
+		super(error);
 	}
 }

@@ -22,7 +22,7 @@ const app = scope(() => {
 		return () => clearTimeout(timeout);
 	});
 
-	return memo(() => {
+	const api = memo(() => {
 		return {
 			addTodo: (item: string) => todos.update(list => list.push(item)),
 			removeTodo: (index: number) => todos.update(list => list.splice(index)),
@@ -30,21 +30,27 @@ const app = scope(() => {
 			todos: todos.inspect()
 		};
 	});
+
+	return api.inspect();
 });
 
 app.onEvent((e) => {
 	switch (e.type) {
-		case ScopeEvent.Invalidate:
-			// the slots values of the scope have changed
-			// run the scope again to update its state
+		case ScopeEvent.Invalidated:
+			console.log("invalidated, rerun...");
 			app.run();
-			// a ui library can wrap its function components and get an updated ui node back for example
 			break;
 		case ScopeEvent.Pending:
-			// reactive events needs processing (effects, memos, slot changes)
+			console.log("got pending, flush...");
 			app.flush();
 			break;
 	}
 });
 
-app.run();
+const { data, error } = app.run();
+
+if(data) {
+	data.addTodo("test");
+} else {
+	console.log(error);
+}

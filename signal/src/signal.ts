@@ -2,7 +2,7 @@ import { Comptime, comptime } from "@ion/comptime";
 import { getActiveScope } from "./scope.js";
 import { ReactiveObserver, trackDependency, Unsubscriber } from "./reactive.js";
 
-export class SignalImpl<T> implements Signal<T> {
+export class Signal<T> {
 	readonly #id: number;
 	readonly #observers = new Set<ReactiveObserver>();
 	readonly #subscribers = new Set<(value: T) => any>();
@@ -23,7 +23,7 @@ export class SignalImpl<T> implements Signal<T> {
 	};
 
 	public readonly set = (value: T): void => {
-		if (Object.is(this.#value, value)) 
+		if (Object.is(this.#value, value))
 			return;
 
 		this.#value = value;
@@ -65,17 +65,8 @@ export class SignalImpl<T> implements Signal<T> {
 	});
 }
 
-export interface Signal<T> {
-	readonly get: () => T;
-	readonly inspect: () => T;
-	readonly set: (value: T) => void;
-	readonly update: (closure: (value: T) => any) => void;
-	readonly subscribe: (observer: (value: T) => any) => Unsubscriber;
-	readonly toJSON: () => { readonly id: number, readonly value: Readonly<T> };
-}
-
 export const createSignal = <T>(id: number, value: T): Signal<T> => {
-	return getActiveScope().getOrInsertSlot(id, () => new SignalImpl(id, value));
+	return getActiveScope().getOrInsertSlot(id, () => new Signal(id, value));
 };
 
 export const signal = comptime((ctx) => {

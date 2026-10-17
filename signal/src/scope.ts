@@ -1,3 +1,4 @@
+
 import { GlobalScope } from "./global-scope.js";
 import { ReactiveObserver, ReactiveSource, Unsubscriber, withObserver } from "./reactive.js";
 import { Slot, SlotData } from "./slot.js";
@@ -14,11 +15,15 @@ export class Scope<T> implements ReactiveObserver {
 	readonly #eventHandlers: ScopeEventHandler[] = [];
 	readonly #slots: Record<number, Slot> = {};
 	readonly #dependencies = new Set<ReactiveSource>();
+	readonly #queue: ScopeEvent<ScopeEventType>[] = [];
 	#nextDependencies: Set<ReactiveSource> | null = null;
+	#result!: T;
 	#isInitialized = false;
 	#isInvalidated = false;
 	#wasInvalidatedWhileRunning = false;
 	#isRunning = false;
+	#isFlushing = false;
+	#hasQueuedInvalidation = false;
 
 	public get isInitialized(): boolean {
 		return this.#isInitialized;
@@ -42,8 +47,11 @@ export class Scope<T> implements ReactiveObserver {
 
 		this.#isInvalidated = true;
 
-		for (const handler of [...this.#eventHandlers])
-			handler({ type: ScopeEvent.Invalidated, data: {} });
+		if (this.#hasQueuedInvalidation)
+			return;
+
+		this.#hasQueuedInvalidation = true;
+		this.#queue.push({ type: ScopeEvent.Invalidated, data: {} });
 	}
 
 	// @internal
@@ -56,12 +64,44 @@ export class Scope<T> implements ReactiveObserver {
 	}
 
 	public flush(): void {
+		if (this.#isFlushing)
+			throw new Error("Cannot flush a scope while it is already flushing.");
 
+		this.#isFlushing = true;
+		const errors: unknown[] = [];
+
+		try {
+			while (this.#queue.length > 0) {
+				const event = this.#queue.shift()!;
+
+				if (event.type === ScopeEvent.Invalidated)
+					this.#hasQueuedInvalidation = false;
+
+				for (const handler of [...this.#eventHandlers]) {
+					try {
+						handler(event);
+					} catch (error) {
+						errors.push(error);
+					}
+				}
+			}
+		} finally {
+			this.#isFlushing = false;
+		}
+
+		if (errors.length === 1)
+			throw errors[0];
+
+		if (errors.length > 1)
+			throw new AggregateError(errors, "Errors occurred while flushing a scope.");
 	}
 
-	public run(): T {
+	public run(): Result<T> {
 		if (this.#isRunning)
 			throw new Error("Cannot run a scope while it is already running.");
+
+		if (this.#isInitialized && !this.#isInvalidated)
+			return { data: this.#result };
 
 		this.#isRunning = true;
 		this.#wasInvalidatedWhileRunning = false;
@@ -88,10 +128,11 @@ export class Scope<T> implements ReactiveObserver {
 				this.#dependencies.add(source);
 			}
 
+			this.#result = result;
 			this.#isInitialized = true;
 			this.#isInvalidated = this.#wasInvalidatedWhileRunning;
 
-			return result;
+			return { data: result };
 		} catch (error) {
 			for (const source of nextDependencies) {
 				if (!previousDependencies.has(source))
@@ -154,3 +195,11 @@ type ScopeEvents = {
 };
 
 export const scope = <T>(closure: ScopeClosure<T>): Scope<T> => new Scope<T>(closure);
+
+export type Result<T> = {
+	readonly data: T;
+	readonly error?: undefined;
+} | {
+	readonly data?: undefined;
+	readonly error: Error;
+};

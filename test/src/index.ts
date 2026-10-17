@@ -1,4 +1,4 @@
-import { effect, memo, scope, ScopeEvent, signal } from "@ion/signal";
+import { effect, scope, ScopeEvent, signal } from "@ion/signal";
 
 const app = scope(() => {
 	const title = signal("todos");
@@ -22,16 +22,12 @@ const app = scope(() => {
 		return () => clearTimeout(timeout);
 	});
 
-	const api = memo(() => {
-		return {
-			addTodo: (item: string) => todos.update(list => list.push(item)),
-			removeTodo: (index: number) => todos.update(list => list.splice(index)),
-			setTitle: (t: string) => title.set(t),
-			todos: todos.inspect()
-		};
-	});
-
-	return api.inspect();
+	return {
+		addTodo: (item: string) => todos.update(list => list.push(item)),
+		removeTodo: (index: number) => todos.update(list => list.splice(index)),
+		setTitle: (t: string) => title.set(t),
+		todos: todos.inspect()
+	};
 });
 
 app.onEvent((e) => {
@@ -49,7 +45,7 @@ app.onEvent((e) => {
 
 const { data, error } = app.run();
 
-if(data) {
+if (data) {
 	data.addTodo("test");
 } else {
 	console.log(error);

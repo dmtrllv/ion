@@ -243,6 +243,10 @@ export class ModuleResolver implements Pass<ModuleMap> {
 				return;
 			}
 
+			if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+				return;
+			}
+
 			if (ts.isCallExpression(node) || ts.isPropertyAccessExpression(node)) {
 				shouldRemove = true;
 				return;

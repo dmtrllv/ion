@@ -243,8 +243,12 @@ export class Scope<T> implements ReactiveObserver {
 		let slot = this.#slots[id];
 
 		if (!slot) {
-			slot = new Slot(onInsert());
+			const data = onInsert();
+			slot = new Slot(data);
 			this.#slots[id] = slot;
+
+			if (data instanceof Effect)
+				this.notifyPending();
 		}
 
 		return slot.data as T;

@@ -7,6 +7,7 @@ export class Memo<T> implements ReactiveSource, ReactiveObserver {
 	readonly #closure: () => T;
 	readonly #observers = new Set<ReactiveObserver>();
 	readonly #dependencies = new Set<ReactiveSource>();
+	readonly #scope = getActiveScope();
 
 	#nextDependencies: Set<ReactiveSource> | null = null;
 	#value!: T;
@@ -54,10 +55,11 @@ export class Memo<T> implements ReactiveSource, ReactiveObserver {
 
 	// @internal
 	public invalidate(): void {
-		if (this.#isDisposed)
+		if (this.#isDisposed || this.#isStale)
 			return;
 
 		this.#isStale = true;
+		this.#scope.notifyPending();
 	}
 
 	// @internal

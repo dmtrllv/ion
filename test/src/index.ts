@@ -1,5 +1,5 @@
 
-import { effect, Scope, scope, ScopeEvent, signal } from "@ion/signal";
+import { effect, memo, Scope, scope, ScopeEvent, signal } from "@ion/signal";
 
 //const app = scope(() => {
 //	const title = signal("todos");
@@ -71,19 +71,26 @@ import { effect, Scope, scope, ScopeEvent, signal } from "@ion/signal";
 //}
 
 Scope.global.onEvent((e) => {
-	switch(e.type) {
+	switch (e.type) {
 		case ScopeEvent.Pending:
-		e.sender.flush();
-		break;
+			e.sender.flush();
+			break;
 	}
 });
 
+let isInit = true;
+
 const list = signal([1]);
+
+const length = memo(() => list.get().length);
+const sum = memo(() => list.get().reduce((a, b) => a + b, 0));
 
 effect(() => {
 	console.log(list.get());
+	console.log("length", length.get());
+	console.log("sum", sum.get());
 });
 
-setTimeout(() => {
+setInterval(() => {
 	list.update(list => list.push(list.length + 1));
 }, 1000);

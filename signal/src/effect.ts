@@ -21,7 +21,6 @@ export class Effect implements ReactiveObserver {
 
 	public constructor(closure: EffectClosure) {
 		this.#closure = closure;
-		this.#scope.notifyPending();
 	}
 
 	public get isPending(): boolean {

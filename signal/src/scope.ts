@@ -17,6 +17,8 @@ export class Scope<T> implements ReactiveObserver {
 	#nextDependencies: Set<ReactiveSource> | null = null;
 	#isInitialized = false;
 	#isInvalidated = false;
+	#wasInvalidatedWhileRunning = false;
+	#isRunning = false;
 
 	public get isInitialized(): boolean {
 		return this.#isInitialized;
@@ -32,7 +34,16 @@ export class Scope<T> implements ReactiveObserver {
 
 	// @internal
 	public invalidate(): void {
-		throw new Error("Method not implemented.");
+		if (this.#isRunning)
+			this.#wasInvalidatedWhileRunning = true;
+
+		if (this.#isInvalidated)
+			return;
+
+		this.#isInvalidated = true;
+
+		for (const handler of [...this.#eventHandlers])
+			handler({ type: ScopeEvent.Invalidated, data: {} });
 	}
 
 	// @internal
@@ -49,13 +60,18 @@ export class Scope<T> implements ReactiveObserver {
 	}
 
 	public run(): T {
-		const previousScope = activeScope;
+		if (this.#isRunning)
+			throw new Error("Cannot run a scope while it is already running.");
 
+		this.#isRunning = true;
+		this.#wasInvalidatedWhileRunning = false;
+		this.#isInvalidated = false;
+
+		const previousScope = activeScope;
 		const previousDependencies = this.#dependencies;
 		const nextDependencies = new Set<ReactiveSource>();
 
 		activeScope = this;
-		
 		this.#nextDependencies = nextDependencies;
 
 		try {
@@ -73,7 +89,7 @@ export class Scope<T> implements ReactiveObserver {
 			}
 
 			this.#isInitialized = true;
-			this.#isInvalidated = false;
+			this.#isInvalidated = this.#wasInvalidatedWhileRunning;
 
 			return result;
 		} catch (error) {
@@ -82,9 +98,12 @@ export class Scope<T> implements ReactiveObserver {
 					source.removeObserver(this);
 			}
 
+			this.#isInvalidated = true;
+
 			throw error;
 		} finally {
 			this.#nextDependencies = null;
+			this.#isRunning = false;
 			activeScope = previousScope;
 		}
 	}
@@ -123,7 +142,7 @@ const Invalidated = "INVALIDATED" as const;
 const Pending = "PENDING" as const;
 
 export const ScopeEvent = {
-	Invalidate: Invalidated,
+	Invalidated,
 	Pending,
 } as const;
 

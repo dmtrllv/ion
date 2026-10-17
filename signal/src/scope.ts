@@ -1,70 +1,57 @@
-import { Effect } from "./effect.js";
-import { Memo } from "./memo.js";
-import { Signal, Unsubscriber } from "./signal.js";
+import { GlobalScope } from "./global-scope.js";
+import { ReactiveObserver, ReactiveSource, Unsubscriber } from "./reactive.js";
+import { Slot, SlotData } from "./slot.js";
 
 export type ScopeClosure<T> = () => T;
 
-let activeScope: Scope<any> | null = null;
+let activeScope: Scope<any> | GlobalScope = GlobalScope.get();
 
-export const getActiveScope = () => activeScope as InternalScope | null;
+// @internal
+export const getActiveScope = (): Scope<any> | GlobalScope => activeScope || GlobalScope.get();
 
-type PriveMethods = "addSlot" | "resolveNextSlot"
-
-export interface InternalScope extends Omit<Scope<any>, PriveMethods> {
-	getOrInsertSlot: <T extends SlotData>(id: number, onInsert: () => T) => T;
-}
-
-type SlotData = Signal<any> | Effect | Memo<any>;
-
-type SubScriber = () => any;
-
-class Slot {
-	public readonly data: SlotData;
-	public readonly subscribers: SubScriber[] = [];
-
-	public constructor(data: SlotData) {
-		this.data = data;
-	}
-}
-
-export class Scope<T> {
+export class Scope<T> implements ReactiveObserver {
 	readonly #closure: ScopeClosure<T>;
 	readonly #eventHandlers: ScopeEventHandler[] = [];
-	readonly #slots: (Slot | null)[] = [];
+	readonly #slots: Record<number, Slot> = {};
 
-	#isInitialized: boolean = false;
-
-	// @ts-expect-error
-	private getOrInsertSlot = <T extends SlotData>(id: number, onInsert: () => T): T => {
-		if (!this.#slots[id])
-			this.#slots[id] = new Slot(onInsert());
-		return this.#slots[id].data as T;
-	}
+	#isInitialized = false;
+	#isInvalidated = false;
 
 	public get isInitialized(): boolean {
 		return this.#isInitialized;
+	}
+
+	public get isInvalidated(): boolean {
+		return this.#isInvalidated;
 	}
 
 	public constructor(closure: ScopeClosure<T>) {
 		this.#closure = closure;
 	}
 
-	public run(): T {
-		const prev = activeScope;
-		try {
-			activeScope = this;
-			const result = this.#closure();
-			activeScope = prev;
-			return result;
-		} catch(e) {
-			throw e;
-		} finally {
-			this.#isInitialized = true;
-		}
+	// @internal
+	public invalidate(): void {
+		throw new Error("Method not implemented.");
 	}
 
-	public flush() {
+	// @internal
+	public track(source: ReactiveSource): void {
 
+	}
+
+	public flush(): void {
+
+	}
+
+	public run(): T {
+		throw new Error("todo");
+	}
+
+	// @internal
+	public getOrInsertSlot = <T extends SlotData>(id: number, onInsert: () => T): T => {
+		if (!this.#slots[id])
+			this.#slots[id] = new Slot(onInsert());
+		return this.#slots[id].data as T;
 	}
 
 	public readonly onEvent = (handler: ScopeEventHandler): Unsubscriber => {
@@ -72,16 +59,23 @@ export class Scope<T> {
 		return () => this.removeEventHandler(handler);
 	}
 
-	private readonly removeEventHandler = (handler: ScopeEventHandler) => {
+	private readonly removeEventHandler = (handler: ScopeEventHandler): boolean => {
 		const index = this.#eventHandlers.indexOf(handler);
-		const found = index > -1;
-		if (found)
-			this.#eventHandlers.splice(index, 1);
-		return found;
+
+		if (index === -1)
+			return false;
+
+		this.#eventHandlers.splice(index, 1);
+		return true;
 	}
 }
 
-type ScopeEventHandler = <T extends keyof ScopeEvents>(event: { readonly type: T, readonly data: ScopeEvents[T] }) => any;
+export type ScopeEventHandler = <T extends ScopeEventType>(event: ScopeEvent<T>) => any;
+
+export type ScopeEvent<T extends ScopeEventType> = {
+	readonly type: T,
+	readonly data: ScopeEvents[T];
+};
 
 const Invalidate = "INVALIDATE" as const;
 const Pending = "PENDING" as const;
@@ -98,4 +92,4 @@ type ScopeEvents = {
 	[Pending]: {},
 };
 
-export const scope = <T>(closure: ScopeClosure<T>): Scope<T> => new Scope(closure);
+export const scope = <T>(closure: ScopeClosure<T>): Scope<T> => new Scope<T>(closure);

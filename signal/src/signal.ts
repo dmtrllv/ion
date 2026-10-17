@@ -1,8 +1,11 @@
 import { Comptime, comptime } from "@ion/comptime";
 import { getActiveScope } from "./scope.js";
+import { ReactiveObserver, trackDependency, Unsubscriber } from "./reactive.js";
 
 export class SignalImpl<T> implements Signal<T> {
 	readonly #id: number;
+	readonly #observers = new Set<ReactiveObserver>();
+	readonly #subscribers = new Set<(value: T) => any>();
 	#value: T;
 
 	public constructor(id: number, value: T) {
@@ -11,37 +14,55 @@ export class SignalImpl<T> implements Signal<T> {
 	}
 
 	public readonly get = (): T => {
+		trackDependency(this);
 		return this.#value;
 	};
 
 	public readonly inspect = (): T => {
 		return this.#value;
-	}
+	};
 
-	public readonly set = (value: T) => {
+	public readonly set = (value: T): void => {
+		if (Object.is(this.#value, value)) 
+			return;
+
 		this.#value = value;
+		this.notify();
+	};
+
+	public readonly update = (closure: (value: T) => any): void => {
+		closure(this.#value);
+		this.notify();
+	};
+
+	public readonly subscribe = (observer: (value: T) => any): Unsubscriber => {
+		this.#subscribers.add(observer);
+
+		return () => this.#subscribers.delete(observer);
+	};
+
+	public addObserver(observer: ReactiveObserver): void {
+		this.#observers.add(observer);
 	}
 
-	/**
-	 * @argument {T} closure is a function that modifies the state inplace, its return type is any
-	 * so that inline closures are possible. For example in `list.update(list => list.push("buy milk"))`,
-	 * `list.push()` returns a number which is not what the new state will be, the value is mutated in place.
-	 * If the value needs to be replaced use `Signal.set(value)`
-	 */
-	public readonly update = (closure: (value: T) => any) => {
-		this.set(closure(this.get()));
-	};
+	public removeObserver(observer: ReactiveObserver): void {
+		this.#observers.delete(observer);
+	}
 
-	public readonly subscribe = (_observer: (value: T) => any): Unsubscriber => {
-		return () => false;
-	};
-
-	public readonly toJSON = () => {
-		return {
-			id: this.#id,
-			value: this.#value,
+	private readonly notify = (): void => {
+		for (const observer of [...this.#observers]) {
+			observer.invalidate();
 		}
-	}
+
+		for (const subscriber of [...this.#subscribers]) {
+			subscriber(this.#value);
+		}
+	};
+
+	public readonly toJSON = () => ({
+		id: this.#id,
+		value: this.#value,
+	});
 }
 
 export interface Signal<T> {
@@ -53,19 +74,8 @@ export interface Signal<T> {
 	readonly toJSON: () => { readonly id: number, readonly value: Readonly<T> };
 }
 
-export type Unsubscriber = () => boolean;
-
-// TODO: compiler fix
-// this gets removed in comptime module output for some reason...
-// or it thinks this has a top level execution somewhere
-// or its a syntax symbol rewrite issue 
-// or an import resolution issue
 export const createSignal = <T>(id: number, value: T): Signal<T> => {
-	const scope = getActiveScope();
-	if (scope === null) {
-		throw new Error(`Reactives only work inside a scope!`);
-	}
-	return scope.getOrInsertSlot(id, () => new SignalImpl(id, value));
+	return getActiveScope().getOrInsertSlot(id, () => new SignalImpl(id, value));
 };
 
 export const signal = comptime((ctx) => {

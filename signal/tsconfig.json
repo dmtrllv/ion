@@ -5,7 +5,8 @@
 		"target": "es2025",
 		"module": "nodenext",
 		"declaration": true,
-		"declarationDir": "./types"
+		"declarationDir": "./types",
+		"stripInternal": true
 	},
 	"extends": "@tsconfig/strictest"
 }

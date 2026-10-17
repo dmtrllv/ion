@@ -13,6 +13,11 @@ export type ComptimeCall = {
 	readonly node: ts.CallExpression;
 };
 
+export type ComptimeEvaluation = {
+	readonly results: Map<ts.CallExpression, ts.Expression>;
+	readonly comptimeImports: Map<ts.ImportDeclaration, Set<string>>;
+};
+
 type ComptimeFn = {
 	readonly __ion_comptime_fn__?: (args: readonly ts.Expression[]) => unknown;
 };
@@ -36,18 +41,22 @@ type ExternalComptimeFunction = {
 	readonly entry: ComptimeManifestExport;
 };
 
-export class ComptimeEvaluator implements Pass<Map<ts.CallExpression, ts.Expression>, [ModuleMap, TransformedModule[]]> {
+export class ComptimeEvaluator implements Pass<ComptimeEvaluation, [ModuleMap, TransformedModule[]]> {
 	private readonly externalRuntimeModules = new Map<string, Promise<RuntimeModule>>();
 
 	public async run(
 		compiler: Compiler,
 		modules: ModuleMap,
 		transformedModules: TransformedModule[],
-	): Promise<Map<ts.CallExpression, ts.Expression>> {
+	): Promise<ComptimeEvaluation> {
 		const runtimeModules = await this.loadRuntimeModules(
 			transformedModules,
 		);
 		const results = new Map<ts.CallExpression, ts.Expression>();
+		const comptimeImports = this.findComptimeImports(
+			compiler,
+			modules,
+		);
 
 		this.validateComptimeValues(modules, runtimeModules);
 
@@ -57,11 +66,116 @@ export class ComptimeEvaluator implements Pass<Map<ts.CallExpression, ts.Express
 				transformed.module,
 				modules,
 				runtimeModules,
-				results
+				results,
 			);
 		}
 
-		return results;
+		return { results, comptimeImports };
+	}
+
+	private findComptimeImports(
+		compiler: Compiler,
+		modules: ModuleMap,
+	): Map<ts.ImportDeclaration, Set<string>> {
+		const comptimeImports = new Map<
+			ts.ImportDeclaration,
+			Set<string>
+		>();
+
+		for (const module of Object.values(modules)) {
+			for (const statement of module.sourceFile.statements) {
+				if (
+					!ts.isImportDeclaration(statement) ||
+					!statement.importClause ||
+					statement.importClause.isTypeOnly
+				) {
+					continue;
+				}
+
+				const clause = statement.importClause;
+				const names = new Set<string>();
+
+				if (clause.name) {
+					const symbol = compiler.typeChecker.getSymbolAtLocation(
+						clause.name,
+					);
+
+					if (
+						symbol &&
+						this.isComptimeFunctionSymbol(
+							compiler,
+							symbol,
+							modules,
+						)
+					) {
+						names.add(clause.name.text);
+					}
+				}
+
+				const bindings = clause.namedBindings;
+
+				if (bindings && ts.isNamedImports(bindings)) {
+					for (const element of bindings.elements) {
+						if (element.isTypeOnly) {
+							continue;
+						}
+
+						const symbol = compiler.typeChecker.getSymbolAtLocation(
+							element.name,
+						);
+
+						if (
+							symbol &&
+							this.isComptimeFunctionSymbol(
+								compiler,
+								symbol,
+								modules,
+							)
+						) {
+							names.add(element.name.text);
+						}
+					}
+				}
+
+				if (names.size > 0) {
+					comptimeImports.set(statement, names);
+				}
+			}
+		}
+
+		return comptimeImports;
+	}
+
+	private isComptimeFunctionSymbol(
+		compiler: Compiler,
+		symbol: ts.Symbol,
+		modules: ModuleMap,
+	): boolean {
+		let target = symbol;
+
+		while ((target.flags & ts.SymbolFlags.Alias) !== 0) {
+			const resolved = compiler.typeChecker.getAliasedSymbol(target);
+
+			if (resolved === target) {
+				break;
+			}
+
+			target = resolved;
+		}
+
+		const declarationModule = this.findDeclarationModule(
+			target,
+			modules,
+		);
+
+		if (declarationModule) {
+			return (
+				declarationModule.getComptimeDeclaration(target)?.type ===
+				"comptime.fn"
+			);
+		}
+
+		return this.findExternalComptimeFunction(target) !== undefined;
 	}
 
 	private findExternalComptimeFunction(

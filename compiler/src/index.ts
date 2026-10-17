@@ -26,8 +26,8 @@ mkdirSync(comptimeOutput, { recursive: true });
 Compiler.run(root, async (compiler) => {
 	const modules = await compiler.run(ModuleResolver);
 	const transformedModules = await compiler.run(ModuleTransformer, modules, comptimeOutput,);
-	const comptimeResults = await compiler.run(ComptimeEvaluator, modules, transformedModules);
-	await compiler.run(ComptimeWriter, comptimeResults);
+	const comptimeEvaluations = await compiler.run(ComptimeEvaluator, modules, transformedModules);
+	await compiler.run(ComptimeWriter, comptimeEvaluations);
 	if (isLibBuild)
 		await compiler.run(ComptimeManifestWriter, modules, transformedModules, pkg);
 });

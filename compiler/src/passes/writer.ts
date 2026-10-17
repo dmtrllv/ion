@@ -4,6 +4,8 @@ import { dirname, relative, resolve, sep } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { Pass } from "./pass.js";
 import { Compiler } from "../compiler.js";
+import { ModuleMap } from "./resolver.js";
+import { ComptimeEvaluation } from "./evaluator.js";
 
 type ComptimeReference = ts.Identifier & {
 	readonly __ion_comptime_ref__?: string;
@@ -38,17 +40,26 @@ type MacroSource = {
 	readonly typeChecker: ts.TypeChecker;
 };
 
-export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Expression>]> {
+export class ComptimeWriter
+	implements Pass<void, [ComptimeEvaluation]> {
 	public run(
 		compiler: Compiler,
-		results: Map<ts.CallExpression, ts.Expression>,
+		evaluation: ComptimeEvaluation,
 	): void {
 		const emitResult = compiler.program.emit(
 			undefined,
 			undefined,
 			undefined,
 			false,
-			{ before: [this.transformer(compiler, results)] },
+			{
+				before: [
+					this.transformer(
+						compiler,
+						evaluation.results,
+						evaluation.comptimeImports,
+					),
+				],
+			},
 		);
 
 		if (emitResult.emitSkipped || emitResult.diagnostics.length > 0) {
@@ -68,9 +79,61 @@ export class ComptimeWriter implements Pass<void, [Map<ts.CallExpression, ts.Exp
 	private readonly transformer = (
 		compiler: Compiler,
 		results: Map<ts.CallExpression, ts.Expression>,
+		comptimeImports: Map<ts.ImportDeclaration, Set<string>>,
 	): ts.TransformerFactory<ts.SourceFile> => {
 		return context => {
 			const visit: ts.Visitor = node => {
+				if (ts.isImportDeclaration(node)) {
+					const names = comptimeImports.get(node);
+
+					if (names && node.importClause) {
+						const clause = node.importClause;
+
+						const defaultName =
+							clause.name && !names.has(clause.name.text)
+								? clause.name
+								: undefined;
+
+						let namedBindings = clause.namedBindings;
+
+						if (
+							namedBindings &&
+							ts.isNamedImports(namedBindings)
+						) {
+							const elements = namedBindings.elements.filter(
+								element => !names.has(element.name.text),
+							);
+
+							namedBindings =
+								elements.length > 0
+									? ts.factory.updateNamedImports(
+										namedBindings,
+										elements,
+									)
+									: undefined;
+						}
+
+						if (!defaultName && !namedBindings) {
+							return undefined;
+						}
+
+						const importClause = ts.factory.updateImportClause(
+							clause,
+							clause.isTypeOnly,
+							defaultName,
+							namedBindings,
+						);
+
+						return ts.factory.updateImportDeclaration(
+							node,
+							node.modifiers,
+							importClause,
+							node.moduleSpecifier,
+							node.attributes,
+						);
+					}
+				}
+
 				if (ts.isCallExpression(node)) {
 					const result = results.get(node);
 

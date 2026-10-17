@@ -4,7 +4,6 @@ import { dirname, relative, resolve, sep } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { Pass } from "./pass.js";
 import { Compiler } from "../compiler.js";
-import { ModuleMap } from "./resolver.js";
 import { ComptimeEvaluation } from "./evaluator.js";
 
 type ComptimeReference = ts.Identifier & {
@@ -55,8 +54,7 @@ export class ComptimeWriter
 				before: [
 					this.transformer(
 						compiler,
-						evaluation.results,
-						evaluation.comptimeImports,
+						evaluation
 					),
 				],
 			},
@@ -78,12 +76,39 @@ export class ComptimeWriter
 
 	private readonly transformer = (
 		compiler: Compiler,
-		results: Map<ts.CallExpression, ts.Expression>,
-		comptimeImports: Map<ts.ImportDeclaration, Set<string>>,
+		{ results, comptimeImports, comptimeDeclarations }: ComptimeEvaluation,
 	): ts.TransformerFactory<ts.SourceFile> => {
 		return context => {
 			const visit: ts.Visitor = node => {
+				if (ts.isVariableStatement(node)) {
+					const declarations = node.declarationList.declarations.filter(
+						declaration => !comptimeDeclarations.has(declaration),
+					);
+
+					if (declarations.length === 0) {
+						return undefined;
+					}
+
+					if (declarations.length !== node.declarationList.declarations.length) {
+						return ts.factory.updateVariableStatement(
+							node,
+							node.modifiers,
+							ts.factory.updateVariableDeclarationList(
+								node.declarationList,
+								declarations,
+							),
+						);
+					}
+				}
+
 				if (ts.isImportDeclaration(node)) {
+					if (
+						ts.isStringLiteral(node.moduleSpecifier) &&
+						node.moduleSpecifier.text === "@ion/comptime"
+					) {
+						return undefined;
+					}
+
 					const names = comptimeImports.get(node);
 
 					if (names && node.importClause) {

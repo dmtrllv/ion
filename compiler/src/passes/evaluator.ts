@@ -16,6 +16,7 @@ export type ComptimeCall = {
 export type ComptimeEvaluation = {
 	readonly results: Map<ts.CallExpression, ts.Expression>;
 	readonly comptimeImports: Map<ts.ImportDeclaration, Set<string>>;
+	readonly comptimeDeclarations: Set<ts.VariableDeclaration>;
 };
 
 type ComptimeFn = {
@@ -60,6 +61,32 @@ export class ComptimeEvaluator implements Pass<ComptimeEvaluation, [ModuleMap, T
 
 		this.validateComptimeValues(modules, runtimeModules);
 
+		const comptimeDeclarations = new Set<ts.VariableDeclaration>();
+
+		for (const module of Object.values(modules)) {
+			const runtimeModule = runtimeModules.get(module);
+
+			for (const declaration of module.macroDeclarations) {
+				if (declaration.type === "comptime.fn") {
+					comptimeDeclarations.add(declaration.statement);
+					continue;
+				}
+
+				if (declaration.type !== "comptime" || !runtimeModule) {
+					continue;
+				}
+
+				const name = declaration.statement.name;
+
+				if (
+					ts.isIdentifier(name) &&
+					this.isComptimeFn(runtimeModule[name.text])
+				) {
+					comptimeDeclarations.add(declaration.statement);
+				}
+			}
+		}
+
 		for (const transformed of transformedModules) {
 			await this.evaluate(
 				compiler,
@@ -70,7 +97,7 @@ export class ComptimeEvaluator implements Pass<ComptimeEvaluation, [ModuleMap, T
 			);
 		}
 
-		return { results, comptimeImports };
+		return { results, comptimeImports, comptimeDeclarations };
 	}
 
 	private findComptimeImports(

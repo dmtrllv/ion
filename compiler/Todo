@@ -3,6 +3,7 @@ Bugs:
 	✔ 2. cross package comptime evalution @done(26-10-17 04:11)
 	✔ 3. remove comptime declarations in the final build @done(26-10-17 04:11)
 	☐ 4. when a package uses another comptime package it must only be evaluated at consumer build not library build
+		 The thing is that we need to rewrite library ast parts as well
 	☐ 5. incremental watch
 
 

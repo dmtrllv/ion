@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { Pass } from "./pass.js";
 import { Compiler } from "../compiler.js";
 import { ComptimeEvaluation } from "./evaluator.js";
+import { ModuleMap } from "./resolver.js";
 
 type ComptimeReference = ts.Identifier & {
 	readonly __ion_comptime_ref__?: string;
@@ -40,10 +41,11 @@ type MacroSource = {
 };
 
 export class ComptimeWriter
-	implements Pass<void, [ComptimeEvaluation]> {
+	implements Pass<void, [ComptimeEvaluation, ModuleMap]> {
 	public run(
 		compiler: Compiler,
 		evaluation: ComptimeEvaluation,
+		modules: ModuleMap
 	): void {
 		const emitResult = compiler.program.emit(
 			undefined,
@@ -54,7 +56,8 @@ export class ComptimeWriter
 				before: [
 					this.transformer(
 						compiler,
-						evaluation
+						evaluation,
+						modules
 					),
 				],
 			},
@@ -77,8 +80,37 @@ export class ComptimeWriter
 	private readonly transformer = (
 		compiler: Compiler,
 		{ results, comptimeImports, comptimeDeclarations }: ComptimeEvaluation,
+		modules: ModuleMap,
 	): ts.TransformerFactory<ts.SourceFile> => {
 		return context => {
+			const isComptimeExport = (
+				element: ts.ExportSpecifier,
+			): boolean => {
+				let symbol = compiler.typeChecker.getSymbolAtLocation(
+					element.propertyName ?? element.name,
+				);
+
+				if (!symbol) {
+					return false;
+				}
+
+				while ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+					const target = compiler.typeChecker.getAliasedSymbol(symbol);
+
+					if (target === symbol) {
+						break;
+					}
+
+					symbol = target;
+				}
+
+				return (symbol.declarations ?? []).some(
+					declaration =>
+						ts.isVariableDeclaration(declaration) &&
+						comptimeDeclarations.has(declaration),
+				);
+			};
+
 			const visit: ts.Visitor = node => {
 				if (ts.isVariableStatement(node)) {
 					const declarations = node.declarationList.declarations.filter(
@@ -89,7 +121,10 @@ export class ComptimeWriter
 						return undefined;
 					}
 
-					if (declarations.length !== node.declarationList.declarations.length) {
+					if (
+						declarations.length !==
+						node.declarationList.declarations.length
+					) {
 						return ts.factory.updateVariableStatement(
 							node,
 							node.modifiers,
@@ -156,6 +191,40 @@ export class ComptimeWriter
 							node.moduleSpecifier,
 							node.attributes,
 						);
+					}
+				}
+
+				if (ts.isExportDeclaration(node)) {
+					if (
+						node.exportClause &&
+						ts.isNamedExports(node.exportClause)
+					) {
+						const elements = node.exportClause.elements.filter(
+							element =>
+								!node.isTypeOnly &&
+								!element.isTypeOnly &&
+								!isComptimeExport(element),
+						);
+
+						if (elements.length === 0) {
+							return undefined;
+						}
+
+						if (
+							elements.length !== node.exportClause.elements.length
+						) {
+							return ts.factory.updateExportDeclaration(
+								node,
+								node.modifiers,
+								node.isTypeOnly,
+								ts.factory.updateNamedExports(
+									node.exportClause,
+									elements,
+								),
+								node.moduleSpecifier,
+								node.attributes,
+							);
+						}
 					}
 				}
 

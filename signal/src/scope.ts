@@ -1,6 +1,6 @@
 import { Effect } from "./effect.js";
 import { Memo } from "./memo.js";
-import { Signal, SignalImpl, Unsubscriber } from "./signal.js";
+import { Signal, Unsubscriber } from "./signal.js";
 
 export type ScopeClosure<T> = () => T;
 
@@ -21,7 +21,7 @@ type SubScriber = () => any;
 class Slot {
 	public readonly data: SlotData;
 	public readonly subscribers: SubScriber[] = [];
-	
+
 	public constructor(data: SlotData) {
 		this.data = data;
 	}
@@ -51,11 +51,16 @@ export class Scope<T> {
 
 	public run(): T {
 		const prev = activeScope;
-		activeScope = this;
-		const result = this.#closure();
-		activeScope = prev;
-		this.#isInitialized = true;
-		return result;
+		try {
+			activeScope = this;
+			const result = this.#closure();
+			activeScope = prev;
+			return result;
+		} catch(e) {
+			throw e;
+		} finally {
+			this.#isInitialized = true;
+		}
 	}
 
 	public flush() {

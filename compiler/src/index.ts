@@ -27,7 +27,7 @@ Compiler.run(root, async (compiler) => {
 	const modules = await compiler.run(ModuleResolver);
 	const transformedModules = await compiler.run(ModuleTransformer, modules, comptimeOutput,);
 	const comptimeEvaluations = await compiler.run(ComptimeEvaluator, modules, transformedModules);
-	await compiler.run(ComptimeWriter, comptimeEvaluations);
+	await compiler.run(ComptimeWriter, comptimeEvaluations, modules);
 	if (isLibBuild)
 		await compiler.run(ComptimeManifestWriter, modules, transformedModules, pkg);
 });

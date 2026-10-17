@@ -3,18 +3,24 @@ import { getActiveScope } from "./scope.js";
 
 export class SignalImpl<T> implements Signal<T> {
 	readonly #id: number;
-	readonly #value: T;
+	#value: T;
 
 	public constructor(id: number, value: T) {
 		this.#id = id;
 		this.#value = value;
 	}
-	
-	public readonly get!: () => T;
 
-	public readonly inspect!: () => T;
+	public readonly get = (): T => {
+		return this.#value;
+	};
 
-	public readonly set!: (value: T) => T;
+	public readonly inspect = (): T => {
+		return this.#value;
+	}
+
+	public readonly set = (value: T) => {
+		this.#value = value;
+	}
 
 	/**
 	 * @argument {T} closure is a function that modifies the state inplace, its return type is any
@@ -22,9 +28,13 @@ export class SignalImpl<T> implements Signal<T> {
 	 * `list.push()` returns a number which is not what the new state will be, the value is mutated in place.
 	 * If the value needs to be replaced use `Signal.set(value)`
 	 */
-	public readonly update!: (closure: (value: T) => any) => T;
+	public readonly update = (closure: (value: T) => any) => {
+		this.set(closure(this.get()));
+	};
 
-	public readonly subscribe!: (observer: (value: T) => any) => Unsubscriber;
+	public readonly subscribe = (_observer: (value: T) => any): Unsubscriber => {
+		return () => false;
+	};
 
 	public readonly toJSON = () => {
 		return {
@@ -37,8 +47,8 @@ export class SignalImpl<T> implements Signal<T> {
 export interface Signal<T> {
 	readonly get: () => T;
 	readonly inspect: () => T;
-	readonly set: (value: T) => T;
-	readonly update: (closure: (value: T) => any) => T;
+	readonly set: (value: T) => void;
+	readonly update: (closure: (value: T) => any) => void;
 	readonly subscribe: (observer: (value: T) => any) => Unsubscriber;
 	readonly toJSON: () => { readonly id: number, readonly value: Readonly<T> };
 }
@@ -52,7 +62,7 @@ export type Unsubscriber = () => boolean;
 // or an import resolution issue
 export const createSignal = <T>(id: number, value: T): Signal<T> => {
 	const scope = getActiveScope();
-	if(scope === null) {
+	if (scope === null) {
 		throw new Error(`Reactives only work inside a scope!`);
 	}
 	return scope.getOrInsertSlot(id, () => new SignalImpl(id, value));

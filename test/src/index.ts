@@ -70,58 +70,40 @@
 //	process();
 //}
 
-
 import { effect, scope, signal } from "@ion/signal";
 
-const app = scope(() => {
-	const first = signal(1);
-	const second = signal(1);
+let childCleanupCount = 0;
 
-	effect(() => {
-		first.get();
-		console.log("Effect A executed");
+const parent = scope(() => {
+	const value = signal(1);
 
-		return () => {
-			console.log("Cleanup A");
-			throw new Error("Cleanup A failed");
-		};
+	const child = scope(() => {
+		effect(() => {
+			console.log("Child effect:", value.get());
+
+			return () => {
+				console.log("Child cleanup");
+				childCleanupCount++;
+			};
+		});
+
+		return {};
 	});
 
-	effect(() => {
-		second.get();
-		console.log("Effect B executed");
-
-		return () => {
-			console.log("Cleanup B");
-		};
-	});
-
-	return { first, second };
+	return { value, child };
 });
 
-const result = app.run();
+const result = parent.run();
 if (result.error) throw result.error;
 
-app.flush();
+result.data.child.run();
+parent.flush();
+result.data.child.flush();
 
-console.log("--- Dispose scope ---");
+console.log("--- Rerun parent ---");
+parent.run();
 
-try {
-	app.dispose();
-} catch (error) {
-	console.log("Caught:", (error as Error).message);
-	if (error instanceof AggregateError) {
-		for (const nestedError of error.errors)
-			console.log("Nested:", (nestedError as Error).message);
-	}
-}
+console.log("--- Dispose parent ---");
+parent.dispose();
 
-console.log("--- Update signals after disposal ---");
-result.data.first.set(2);
-result.data.second.set(2);
-
-try {
-	app.flush();
-} catch (error) {
-	console.log("Caught:", (error as Error).message);
-}
+console.log("Child cleanup count:", childCleanupCount);

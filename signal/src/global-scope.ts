@@ -1,31 +1,33 @@
 
 import { ReactiveObserver, ReactiveSource, Unsubscriber } from "./reactive.js";
-import { ScopeEvent, ScopeEventType } from "./scope.js";
+import { Scope, ScopeEvent, ScopeEventType } from "./scope.js";
 import { Slot, SlotData } from "./slot.js";
 
 export class GlobalScope implements ReactiveObserver {
 	static readonly #instance = new GlobalScope();
-
+	
 	public static get(): GlobalScope {
 		return this.#instance;
 	}
-
+	
 	readonly #eventHandlers: GlobalScopeEventHandler[] = [];
 	readonly #slots: Record<string, Slot> = {};
 	readonly #queue: ScopeEvent<ScopeEventType>[] = [];
-
+	readonly #children = new Set<Scope<any>>();
+	
 	#hasQueuedPending = false;
 	#isFlushing = false;
+	#isDisposed: boolean = false;
 
-	private constructor() {}
+	private constructor() { }
 
-	// @internal
-	public invalidate(): void {
-		this.notifyPending();
+	//
+	public get isDisposed(): boolean {
+		return this.#isDisposed;
 	}
 
 	// @internal
-	public notifyPending(): void {
+	public invalidate(): void {
 		if (this.#hasQueuedPending)
 			return;
 
@@ -33,8 +35,18 @@ export class GlobalScope implements ReactiveObserver {
 		this.#queue.push({ type: ScopeEvent.Pending, data: {} });
 	}
 
+	// @internal 
+	public addChild(scope: Scope<any>) {
+		this.#children.add(scope);
+	}
+
+	// @internal 
+	public removeChild(scope: Scope<any>) {
+		this.#children.delete(scope);
+	}
+
 	// @internal
-	public track(_source: ReactiveSource): void {}
+	public track(_source: ReactiveSource): void { }
 
 	// @internal
 	public flush(): void {
@@ -94,6 +106,40 @@ export class GlobalScope implements ReactiveObserver {
 		}
 
 		return slot.data as T;
+	}
+
+	public dispose(): void {
+		if (this.#isDisposed)
+			return;
+
+		if (this.#isFlushing)
+			throw new Error("Cannot dispose a scope while it is running or flushing.");
+
+		this.#isDisposed = true;
+
+		const errors: Error[] = [];
+
+		for (const child of [...this.#children]) {
+			try {
+				child.dispose();
+			} catch (error) {
+				errors.push(toError(error));
+			}
+		}
+
+		this.#children.clear();
+
+		for (const id of Object.keys(this.#slots))
+			delete this.#slots[id];
+
+		this.#hasQueuedPending = false;
+		this.#eventHandlers.length = 0;
+
+		if (errors.length === 1)
+			throw errors[0];
+
+		if (errors.length > 1)
+			throw new AggregateError(errors, "Multiple reactive computations failed during scope disposal.");
 	}
 }
 

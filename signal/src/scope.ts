@@ -31,7 +31,9 @@ export class Scope<T> implements ReactiveObserver {
 	readonly #eventHandlers: ScopeEventHandler[] = [];
 	readonly #slots: Record<string, Slot> = {};
 	readonly #dependencies = new Set<ReactiveSource>();
+	readonly #children = new Set<Scope<any>>();
 
+	#parent: Scope<any> | GlobalScope | null;
 	#nextDependencies: Set<ReactiveSource> | null = null;
 	#result!: T;
 	#isInitialized = false;
@@ -55,6 +57,27 @@ export class Scope<T> implements ReactiveObserver {
 
 	public constructor(closure: ScopeClosure<T>) {
 		this.#closure = closure;
+
+		const parent = activeScope;
+
+		if (parent && parent.isDisposed)
+			throw new Error("Cannot create a child scope in a disposed scope.");
+
+		this.#parent = parent;
+
+		if (parent) {
+			parent.addChild(this);
+		}
+	}
+
+	// @internal 
+	public addChild(scope: Scope<any>) {
+		this.#children.add(scope);
+	}
+
+	// @internal 
+	public removeChild(scope: Scope<any>) {
+		this.#children.delete(scope);
 	}
 
 	public get isDisposed(): boolean {
@@ -280,6 +303,13 @@ export class Scope<T> implements ReactiveObserver {
 			throw new AggregateError(errors, "Multiple scope event handlers failed.");
 	};
 
+	public detach() {
+		if (this.#parent) {
+			this.#parent.removeChild(this);
+			this.#parent = null;
+		}
+	}
+
 	public dispose(): void {
 		if (this.#isDisposed)
 			return;
@@ -290,6 +320,18 @@ export class Scope<T> implements ReactiveObserver {
 		this.#isDisposed = true;
 
 		const errors: Error[] = [];
+
+		for (const child of [...this.#children]) {
+			try {
+				child.dispose();
+			} catch (error) {
+				errors.push(toError(error));
+			}
+		}
+
+		this.#children.clear();
+
+		this.detach();
 
 		for (const dependency of this.#dependencies)
 			dependency.removeObserver(this);

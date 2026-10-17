@@ -1,6 +1,7 @@
 import { Comptime, comptime } from "@ion/comptime";
+import { getActiveScope } from "./scope.js";
 
-class SignalImpl<T> implements Signal<T> {
+export class SignalImpl<T> implements Signal<T> {
 	readonly #id: number;
 	readonly #value: T;
 
@@ -11,7 +12,7 @@ class SignalImpl<T> implements Signal<T> {
 	
 	public readonly get!: () => T;
 
-	public readonly use!: () => T;
+	public readonly inspect!: () => T;
 
 	public readonly set!: (value: T) => T;
 
@@ -35,16 +36,27 @@ class SignalImpl<T> implements Signal<T> {
 
 export interface Signal<T> {
 	readonly get: () => T;
-	readonly use: () => T;
+	readonly inspect: () => T;
 	readonly set: (value: T) => T;
 	readonly update: (closure: (value: T) => any) => T;
 	readonly subscribe: (observer: (value: T) => any) => Unsubscriber;
 	readonly toJSON: () => { readonly id: number, readonly value: Readonly<T> };
 }
 
-export type Unsubscriber = () => void;
+export type Unsubscriber = () => boolean;
 
-export const createSignal = <T>(id: number, value: T): Signal<T> => new SignalImpl(id, value);
+// TODO: compiler fix
+// this gets removed in comptime module output for some reason...
+// or it thinks this has a top level execution somewhere
+// or its a syntax symbol rewrite issue 
+// or an import resolution issue
+export const createSignal = <T>(id: number, value: T): Signal<T> => {
+	const scope = getActiveScope();
+	if(scope === null) {
+		throw new Error(`Reactives only work inside a scope!`);
+	}
+	return scope.getOrInsertSlot(id, () => new SignalImpl(id, value));
+};
 
 export const signal = comptime((ctx) => {
 	let count = 0;
@@ -52,7 +64,7 @@ export const signal = comptime((ctx) => {
 	const fnRef = ctx.syntax.ref(createSignal);
 
 	return comptime.fn(<T>(ctx: Comptime.Context, value: Comptime.Expr<T>) => {
-		let id = ctx.syntax.literal(count++);
+		const id = ctx.syntax.literal(count++);
 		return ctx.syntax.call<Signal<T>, [number, T]>(fnRef, id, value);
 	});
 });

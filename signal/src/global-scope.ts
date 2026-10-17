@@ -11,7 +11,7 @@ export class GlobalScope implements ReactiveObserver {
 	}
 
 	readonly #eventHandlers: GlobalScopeEventHandler[] = [];
-	readonly #slots: Record<number, Slot> = {};
+	readonly #slots: Record<string, Slot> = {};
 	readonly #queue: ScopeEvent<ScopeEventType>[] = [];
 	#hasQueuedPending = false;
 	#isFlushing = false;
@@ -70,7 +70,7 @@ export class GlobalScope implements ReactiveObserver {
 	}
 
 	// @internal
-	public getOrInsertSlot = <T extends SlotData>(id: number, onInsert: () => T): T => {
+	public getOrInsertSlot = <T extends SlotData>(id: string, onInsert: () => T): T => {
 		if (!this.#slots[id])
 			this.#slots[id] = new Slot(onInsert());
 		return this.#slots[id].data as T;

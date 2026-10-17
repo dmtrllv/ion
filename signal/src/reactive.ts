@@ -1,3 +1,7 @@
+import { Effect } from "./effect.js";
+import { Memo } from "./memo.js";
+
+// @internal
 export interface ReactiveSource {
 	addObserver(observer: ReactiveObserver): void;
 	removeObserver(observer: ReactiveObserver): void;
@@ -10,7 +14,7 @@ export interface ReactiveObserver {
 	 * @param source the reactive object that this observer will track
 	 */
 	track(source: ReactiveSource): void;
-	
+
 	/**
 	 * Marks this object as stale
 	 */
@@ -37,3 +41,13 @@ export const withObserver = <T>(observer: ReactiveObserver, closure: () => T): T
 };
 
 export type Unsubscriber = () => boolean;
+
+export type ReactiveResult<T> = {
+	readonly data: T;
+	readonly error?: undefined;
+	readonly source?: undefined;
+} | {
+	readonly data?: undefined;
+	readonly error: Error;
+	readonly source: Memo<any> | Effect;
+};

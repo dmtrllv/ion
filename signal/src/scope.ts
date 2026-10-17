@@ -13,7 +13,7 @@ export const getActiveScope = (): Scope<any> | GlobalScope => activeScope || Glo
 export class Scope<T> implements ReactiveObserver {
 	readonly #closure: ScopeClosure<T>;
 	readonly #eventHandlers: ScopeEventHandler[] = [];
-	readonly #slots: Record<number, Slot> = {};
+	readonly #slots: Record<string, Slot> = {};
 	readonly #dependencies = new Set<ReactiveSource>();
 	readonly #queue: ScopeEvent<ScopeEventType>[] = [];
 	#nextDependencies: Set<ReactiveSource> | null = null;
@@ -150,7 +150,7 @@ export class Scope<T> implements ReactiveObserver {
 	}
 
 	// @internal
-	public getOrInsertSlot = <T extends SlotData>(id: number, onInsert: () => T): T => {
+	public getOrInsertSlot = <T extends SlotData>(id: string, onInsert: () => T): T => {
 		if (!this.#slots[id])
 			this.#slots[id] = new Slot(onInsert());
 		return this.#slots[id].data as T;

@@ -23,7 +23,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		}
 
 		this.linkModules(modules, compiler.options);
-
+		this.removeNonComptimeVariableDeclarations(modules);
 		return modules;
 	}
 
@@ -215,6 +215,62 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		}
 
 		return current;
+	}
+
+
+	private removeNonComptimeVariableDeclarations(
+		modules: ModuleMap,
+	): void {
+		for (const module of Object.values(modules)) {
+			for (const statement of module.sourceFile.statements) {
+				if (!ts.isVariableStatement(statement)) {
+					continue;
+				}
+
+				for (const declaration of statement.declarationList.declarations) {
+					const initializer = declaration.initializer;
+
+					if (!initializer || !ts.isCallExpression(initializer)) {
+						continue;
+					}
+
+					const symbol = module.typeChecker.getSymbolAtLocation(
+						initializer.expression,
+					);
+
+					if (!symbol) {
+						module.removeStatements.push(declaration);
+						continue;
+					}
+
+					const target = this.resolveAlias(module.typeChecker, symbol);
+
+					const comptimeDeclaration =
+						module.getComptimeDeclarationForSymbol(target) ??
+						(() => {
+							for (const imported of module.imports) {
+								for (const [name, importedSymbol] of Object.entries(imported.symbols)) {
+									if (this.resolveAlias(module.typeChecker, importedSymbol) !== target) {
+										continue;
+									}
+
+									const comptimeImport = imported.module?.getComptimeImport(name);
+
+									if (comptimeImport) {
+										return comptimeImport;
+									}
+								}
+							}
+
+							return undefined;
+						})();
+
+					if (comptimeDeclaration?.type !== "comptime.fn") {
+						module.removeStatements.push(declaration);
+					}
+				}
+			}
+		}
 	}
 
 	private resolveMacroType(expression: ts.Expression, typeChecker: ts.TypeChecker, entryPoints: Map<ts.Symbol, MacroType>): MacroType | undefined {

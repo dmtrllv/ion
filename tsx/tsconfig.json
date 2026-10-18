@@ -6,7 +6,6 @@
 		"module": "nodenext",
 		"declaration": true,
 		"declarationDir": "./types",
-		"stripInternal": true,
 		"jsx": "react-jsx",
 		"jsxImportSource": "@ion/tsx"
 	},

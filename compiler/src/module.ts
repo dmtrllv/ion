@@ -10,7 +10,7 @@ export class Module {
 	public readonly imports: Import[];
 	public readonly exports: Export[];
 	public readonly reExports: ReExport[];
-	private readonly typeChecker: ts.TypeChecker;
+	public readonly typeChecker: ts.TypeChecker;
 
 	public constructor(typeChecker: ts.TypeChecker, relativePath: string, sourceFile: ts.SourceFile, removeStatements: ts.Node[], macroDeclarations: MacroDeclaration[], compilerOptions: ts.CompilerOptions) {
 		this.typeChecker = typeChecker;

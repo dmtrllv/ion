@@ -3,11 +3,8 @@
 	"author": "Dimitri Lilov",
 	"license": "MIT",
 	"workspaces": [
-		"signal",
-		"compiler",
-		"comptime",
-		"tsx",
-		"dom"
+		"packages/*",
+		"tools/*"
 	],
 	"devDependencies": {
 		"@tsconfig/strictest": "^2.0.8",

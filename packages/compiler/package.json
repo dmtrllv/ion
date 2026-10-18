@@ -1,0 +1,24 @@
+{
+	"name": "@ion/compiler",
+	"version": "0.0.1",
+	"main": "dist/index.js",
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsc -w",
+		"test": "cd test && node .."
+	},
+	"author": "Dimitri Lilov",
+	"type": "module",
+	"license": "MIT",
+	"dependencies": {
+		"@ion/comptime": "file:../comptime",
+		"typescript": "6.0.3"
+	},
+	"exports": {
+		".": {
+			"default": "./dist/index.js",
+			"import": "./dist/index.js",
+			"types": "./types/index.d.js"
+		}
+	}
+}

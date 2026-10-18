@@ -1,0 +1,26 @@
+{
+	"name": "@ion/signal",
+	"version": "0.0.1",
+	"main": "dist/index.js",
+	"scripts": {
+		"build": "ion build --lib"
+	},
+	"author": "Dimitri Lilov",
+	"type": "module",
+	"license": "MIT",
+	"ion": {
+		"comptime": {
+			"output": "./comptime-build"
+		}
+	},
+	"devDependencies": {
+		"@ion/compiler": "file:../compiler",
+		"ion": "file:../../tools/ion"
+	},
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./types/index.d.ts"
+		}
+	}
+}

@@ -106,16 +106,12 @@ export class ModuleResolver implements Pass<ModuleMap> {
 							continue;
 						}
 					}
-
-					if (this.shouldRemoveExpression(declaration.initializer)) {
-						removeStatements.push(declaration);
-					}
 				}
 
 				continue;
 			}
 
-			if (this.shouldRemoveStatement(statement)) {
+			if (this.shouldRemoveStatement(statement, typeChecker)) {
 				removeStatements.push(statement);
 			}
 		}
@@ -231,36 +227,7 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		return entryPoints.get(this.resolveAlias(typeChecker, symbol));
 	}
 
-	private shouldRemoveExpression(expression: ts.Expression | undefined): boolean {
-		if (!expression) {
-			return false;
-		}
-
-		let shouldRemove = false;
-
-		const visit = (node: ts.Node): void => {
-			if (shouldRemove) {
-				return;
-			}
-
-			if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
-				return;
-			}
-
-			if (ts.isCallExpression(node) || ts.isPropertyAccessExpression(node)) {
-				shouldRemove = true;
-				return;
-			}
-
-			node.forEachChild(visit);
-		};
-
-		visit(expression);
-
-		return shouldRemove;
-	}
-
-	private shouldRemoveStatement(statement: ts.Statement): boolean {
+	private shouldRemoveStatement(statement: ts.Statement, checker: ts.TypeChecker): boolean {
 		if (
 			ts.isImportDeclaration(statement) ||
 			ts.isImportEqualsDeclaration(statement) ||
@@ -280,9 +247,24 @@ export class ModuleResolver implements Pass<ModuleMap> {
 				return;
 			}
 
-			if (ts.isCallExpression(node) || ts.isPropertyAccessExpression(node)) {
+			if (ts.isCallExpression(node)) {
 				shouldRemove = true;
 				return;
+			}
+
+			if (ts.isPropertyAccessExpression(node)) {
+				const symbol = checker.getSymbolAtLocation(node.name);
+				const declarations = symbol?.declarations ?? [];
+
+				if (
+					declarations.some(
+						declaration =>
+							ts.isGetAccessorDeclaration(declaration),
+					)
+				) {
+					shouldRemove = true;
+					return;
+				}
 			}
 
 			node.forEachChild(visit);

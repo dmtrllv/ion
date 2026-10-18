@@ -1,0 +1,16 @@
+{
+  "./effect.ts": {
+    "effect": "comptime"
+  },
+  "./index.ts": {
+    "signal": "comptime",
+    "effect": "comptime",
+    "memo": "comptime"
+  },
+  "./memo.ts": {
+    "memo": "comptime"
+  },
+  "./signal.ts": {
+    "signal": "comptime"
+  }
+}

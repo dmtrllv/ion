@@ -1,9 +1,17 @@
 #!/usr/bin/env node
-import { Package } from "@ion/compiler";
+import { Compiler, Package } from "@ion/compiler";
 
 const root = Package.get(process.cwd());
 
-console.log(root.dependencies);
-console.log(root.devDependencies);
-console.log(root.tsconfig);
-console.log(root.comptimeManifest);
+const compiler = new Compiler(root);
+
+if (process.argv.includes("build")) {
+	compiler.compile();
+} else if (process.argv.includes("watch")) {
+
+} else if (process.argv.includes("run")) {
+
+}
+
+
+

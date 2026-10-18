@@ -13,6 +13,8 @@
 		"declaration": true,
 		"declarationDir": "./types",
 		"experimentalDecorators": true,
+		"strictFunctionTypes": true,
+		"strict": true
 	},
 	"include": [
 		"src/*"

@@ -1,6 +1,8 @@
 
 import { effect, memo, Scope, scope, ScopeEvent, signal } from "@ion/signal";
 
+export { signal } from "@ion/signal";
+
 const app = scope(() => {
 	const title = signal("todos");
 	const todos = signal([

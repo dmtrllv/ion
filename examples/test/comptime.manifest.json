@@ -1,0 +1,5 @@
+{
+  "./index.ts": {
+    "signal": "comptime"
+  }
+}

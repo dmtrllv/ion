@@ -75,22 +75,18 @@ Scope.global.onEvent((e) => {
 		case ScopeEvent.Pending:
 			e.sender.flush();
 			break;
+		case ScopeEvent.Invalidated:
+			e.sender.run();
+			break;
 	}
 });
 
-let isInit = true;
-
 const list = signal([1]);
 
-const length = memo(() => list.get().length);
-const sum = memo(() => list.get().reduce((a, b) => a + b, 0));
-
-effect(() => {
+const fn = scope(() => {
 	console.log(list.get());
-	console.log("length", length.get());
-	console.log("sum", sum.get());
 });
 
-setInterval(() => {
-	list.update(list => list.push(list.length + 1));
-}, 1000);
+fn.run();
+
+list.set([2]);

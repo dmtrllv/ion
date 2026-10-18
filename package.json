@@ -5,7 +5,9 @@
 	"workspaces": [
 		"signal",
 		"compiler",
-		"comptime"
+		"comptime",
+		"tsx",
+		"dom"
 	],
 	"devDependencies": {
 		"@tsconfig/strictest": "^2.0.8",

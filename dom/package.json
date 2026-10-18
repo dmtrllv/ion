@@ -1,0 +1,31 @@
+{
+	"name": "@ion/dom",
+	"version": "0.0.1",
+	"main": "dist/index.js",
+	"scripts": {
+		"build": "ion build --lib"
+	},
+	"author": "Dimitri Lilov",
+	"type": "module",
+	"license": "MIT",
+	"ion": {
+		"comptime": {
+			"output": "./comptime-build"
+		}
+	},
+	"devDependencies": {
+		"@ion/compiler": "file:../compiler",
+		"@ion/signal": "file:../signal",
+		"@ion/tsx": "file:../tsx"
+	},
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./types/index.d.ts"
+		},
+		"./jsx-runtime": {
+			"import": "./dist/jsx-runtime.js",
+			"types": "./types/jsx-runtime.d.ts"
+		}
+	}
+}

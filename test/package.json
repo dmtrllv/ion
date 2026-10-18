@@ -14,7 +14,9 @@
 		}
 	},
 	"dependencies": {
-		"@ion/signal": "file:../signal"
+		"@ion/signal": "file:../signal",
+		"@ion/dom": "file:../dom",
+		"@ion/tsx": "file:../tsx"
 	},
 	"devDependencies": {
 		"@ion/compiler": "file:../compiler",

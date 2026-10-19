@@ -8,11 +8,6 @@
 	"author": "Dimitri Lilov",
 	"type": "module",
 	"license": "MIT",
-	"ion": {
-		"comptime": {
-			"output": "./comptime-build"
-		}
-	},
 	"devDependencies": {
 		"@ion/compiler": "file:../compiler",
 		"ion": "file:../../tools/ion"
@@ -20,7 +15,7 @@
 	"exports": {
 		".": {
 			"import": "./dist/index.js",
-			"types": "./types/index.d.ts"
+			"types": "./src/index.ts"
 		}
 	}
 }

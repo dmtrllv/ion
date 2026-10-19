@@ -3,12 +3,16 @@ import { ComptimeManifest, Package } from "./package.js";
 import { Module } from "./module.js";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { ComptimeModule } from "./comptime-module.js";
+import { Evaluator } from "./evaluator.js";
+import { ComptimeCallResults } from "./comptime-context.js";
 
 export class Compiler {
 	public readonly root: Package;
 	public readonly config: ts.ParsedCommandLine;
 	public readonly program: ts.Program;
 	public readonly modules: Map<string, Module> = new Map();
+	public readonly comptimeResults: ComptimeCallResults = new ComptimeCallResults();
 
 	public constructor(root: Package) {
 		this.root = root;
@@ -57,7 +61,19 @@ export class Compiler {
 		writeFileSync(resolve(this.root.path, "comptime.manifest.json"), JSON.stringify(manifest, null, 2));
 	}
 
-	public compile() {
+	public async compile() {
+		const buildId = Date.now();
+		const comptimeModules = this.createComptimeModules(buildId);
+		const evaluationResults = await Evaluator.evaluate(buildId, this, comptimeModules);
+		//console.log(evaluationResults);
 		this.createManifest();
+	}
+
+	private createComptimeModules(id: number) {
+		return Array.from(this.modules.values().map(module => {
+			const comptimeModule = new ComptimeModule(id, this, module, this.root.getComptimePath(module.path));
+			comptimeModule.compile();
+			return comptimeModule;
+		}));
 	}
 }

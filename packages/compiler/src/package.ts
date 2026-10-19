@@ -40,22 +40,47 @@ export class Package {
 		this.json = JSON.parse(readFileSync(resolve(root, "package.json"), "utf-8"));
 	}
 
-	public getRealtiveSourcePath(path: string) {
-		return path.replace((this.tsconfig.options.rootDir || this.path), ".");
-	}
-
-	public getRealtiveSourcePathFromTyping(path: string) {
-		return path.replace((this.tsconfig.options.declarationDir || this.tsconfig.options.outDir || this.path), ".").replace(".d.ts", ".ts");
+	@cached
+	public get sourceDir() {
+		if(this.tsconfig.options.rootDir)
+			return resolve(this.path, this.tsconfig.options.rootDir);
+		return this.path;
 	}
 
 	@cached
-	public get comptimeOutput() {
+	public get declDir() {
+		if(this.tsconfig.options.declarationDir)
+			return this.tsconfig.options.declarationDir;
+		if(this.tsconfig.options.outDir)
+			return this.tsconfig.options.outDir;
+		return this.path;
+	}
+
+	public getRealtiveSourcePath(path: string) {
+		return path.replace(this.sourceDir, ".");
+	}
+
+	public getRealtiveSourcePathFromTyping(path: string) {
+		return path.replace(this.declDir, ".").replace(".d.ts", ".ts");
+	}
+
+	public getComptimePath(path: string) {
+		return resolve(this.comptimeOutput, path.replace(this.sourceDir, ".").replace(/\.tsx?$/, ".js"));
+	}
+	
+	@cached
+	public get relativeComptimeOutput() {
 		const comptime = this.json.ion?.comptime;
 		let path = "comptime-build";
 		if (comptime && typeof comptime !== "boolean" && comptime.output) {
 			path = comptime.output;
 		}
-		return resolve(this.path, path);
+		return path
+	}
+
+	@cached
+	public get comptimeOutput() {
+		return resolve(this.path, this.relativeComptimeOutput);
 	}
 
 	@cached

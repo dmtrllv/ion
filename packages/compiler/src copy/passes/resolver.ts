@@ -27,7 +27,6 @@ export class ModuleResolver implements Pass<ModuleMap> {
 		return modules;
 	}
 
-
 	private linkModules(modules: ModuleMap, compilerOptions: ts.CompilerOptions): void {
 		const modulesByFile = new Map<string, Module>();
 

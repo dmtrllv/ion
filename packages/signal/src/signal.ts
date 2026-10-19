@@ -69,13 +69,11 @@ export const createSignal = <T>(id: string, value: T): Signal<T> => {
 	return getActiveScope().getOrInsertSlot(id, () => new Signal(id, value));
 };
 
-export const signal = comptime((ctx) => {
+export const signal = comptime(() => {
 	let count = 0;
 
-	const fnRef = ctx.syntax.ref(createSignal);
-
-	return comptime.fn(<T>(ctx: Comptime.Context, value: Comptime.Expr<T>) => {
+	return comptime.macro(<T>(ctx: Comptime.Context, value: Comptime.Expr<T>) => {
 		const id = ctx.syntax.literal("signal_" + count++);
-		return ctx.syntax.call<Signal<T>, [string, T]>(fnRef, id, value);
+		return ctx.syntax.call<Signal<T>, [string, T]>(createSignal, id, value);
 	});
 });

@@ -176,12 +176,11 @@ export const createEffect = (id: string, closure: EffectClosure): Effect => {
 	return getActiveScope().getOrInsertSlot(id, () => new Effect(closure));
 };
 
-export const effect = comptime((ctx) => {
+export const effect = comptime(() => {
 	let count = 0;
-	const fnRef = ctx.syntax.ref(createEffect);
 
-	return comptime.fn((ctx: Comptime.Context, closure: Comptime.Expr<EffectClosure>) => {
+	return comptime.macro((ctx: Comptime.Context, closure: Comptime.Expr<EffectClosure>) => {
 		const id = ctx.syntax.literal("effect_" + count++);
-		return ctx.syntax.call<Effect, [string, EffectClosure]>(fnRef, id, closure);
+		return ctx.syntax.call<Effect, [string, EffectClosure]>(createEffect, id, closure);
 	});
 });

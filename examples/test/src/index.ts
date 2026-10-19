@@ -1,5 +1,5 @@
 
-import { effect, memo, Scope, scope, ScopeEvent, signal } from "@ion/signal";
+import { effect, scope, ScopeEvent, signal } from "@ion/signal";
 
 export { signal } from "@ion/signal";
 
@@ -63,11 +63,11 @@ app.onEvent(event => {
 	}
 });
 
-const result = app.run();
+//const result = app.run();
 
-if (result.error) {
-	console.error("Initial scope execution failed:", result.error);
-} else {
-	result.data.addTodo("test");
-	process();
-}
+//if (result.error) {
+//	console.error("Initial scope execution failed:", result.error);
+//} else {
+//	result.data.addTodo("test");
+//	process();
+//}

@@ -6,6 +6,7 @@ import { cached } from "./utils.js";
 export class Module {
 	public readonly path: string;
 	public readonly source: ts.SourceFile;
+	public readonly checker: ts.TypeChecker;
 	public readonly imports: Import[];
 	public readonly exports: Export[];
 	private readonly forwardExports: AliasedExport[] = [];
@@ -13,6 +14,7 @@ export class Module {
 	public constructor(compiler: Compiler, path: string, source: ts.SourceFile) {
 		this.path = path;
 		this.source = source;
+		this.checker = compiler.program.getTypeChecker();
 		this.imports = this.resolveImports(compiler, source);
 		this.exports = this.resolveExports(compiler, source);
 	}
@@ -33,7 +35,6 @@ export class Module {
 	}
 
 	private resolveImports(compiler: Compiler, source: ts.SourceFile) {
-		const checker = compiler.program.getTypeChecker();
 		const imports: Import[] = [];
 		const errors: Error[] = [];
 
@@ -51,11 +52,11 @@ export class Module {
 			const path = (statement.moduleSpecifier as ts.StringLiteral).text;
 
 			const add = (local: ts.Identifier, type: ImportSymbol["type"]) => {
-				const localSymbol = checker.getSymbolAtLocation(local);
+				const localSymbol = this.checker.getSymbolAtLocation(local);
 				if (!localSymbol)
 					throw new Error(`Could not get local symbol for import ${local.text}}`);
 
-				const sourceSymbol = localSymbol && (localSymbol.flags & ts.SymbolFlags.Alias) ? checker.getAliasedSymbol(localSymbol) : undefined;
+				const sourceSymbol = localSymbol && (localSymbol.flags & ts.SymbolFlags.Alias) ? this.checker.getAliasedSymbol(localSymbol) : undefined;
 				if (!sourceSymbol)
 					throw new Error(`Could not get source for import ${local.text}}`);
 
@@ -100,7 +101,6 @@ export class Module {
 	}
 
 	private resolveExports(compiler: Compiler, source: ts.SourceFile) {
-		const checker = compiler.program.getTypeChecker();
 		const exports = [];
 
 		for (const statement of source.statements) {
@@ -116,7 +116,7 @@ export class Module {
 				if (!sourceFile)
 					throw new Error(`Could not get source file for ${resolvedPath}!`);
 
-				const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
+				const moduleSymbol = this.checker.getSymbolAtLocation(sourceFile);
 				if (!moduleSymbol)
 					throw new Error(`Could not get module symbol for export ${path}`);
 
@@ -144,30 +144,30 @@ export class Module {
 			} else if (ts.isExportDeclaration(statement) && statement.exportClause) {
 				if (ts.isNamedExports(statement.exportClause)) {
 					for (const element of statement.exportClause.elements) {
-						const symbol = checker.getSymbolAtLocation(element.name);
+						const symbol = this.checker.getSymbolAtLocation(element.name);
 						if (!symbol)
 							throw new Error(`Could not get symbol for export ${element.name.text}`);
 
-						const declSymbol = symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
-						exports.push(new Export(element.name.text, symbol, this.isComptimeExportType(checker, declSymbol)));
+						const declSymbol = symbol.flags & ts.SymbolFlags.Alias ? this.checker.getAliasedSymbol(symbol) : symbol;
+						exports.push(new Export(element.name.text, symbol, this.getComptimeType(declSymbol), null, false, null));
 					}
 				}
 			} else if (ts.canHaveModifiers(statement) && ts.getModifiers(statement)?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
 				if (ts.isVariableStatement(statement)) {
 					for (const declaration of statement.declarationList.declarations) {
 						if (ts.isIdentifier(declaration.name)) {
-							const symbol = checker.getSymbolAtLocation(declaration.name);
+							const symbol = this.checker.getSymbolAtLocation(declaration.name);
 							if (!symbol)
 								throw new Error(`Could not get symbol for export ${declaration.name.text}`);
 
-							const declSymbol = symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
-							exports.push(new Export(declaration.name.text, symbol, this.isComptimeExportType(checker, declSymbol)));
+							const declSymbol = symbol.flags & ts.SymbolFlags.Alias ? this.checker.getAliasedSymbol(symbol) : symbol;
+							exports.push(new Export(declaration.name.text, symbol, this.getComptimeType(declSymbol), null, false, null));
 						}
 					}
 				} else if (ts.isExportAssignment(statement)) {
-					const symbol = checker.getSymbolAtLocation(statement.expression);
+					const symbol = this.checker.getSymbolAtLocation(statement.expression);
 					if (symbol)
-						exports.push(new Export("default", symbol, this.isComptimeExportType(checker, symbol)));
+						exports.push(new Export("default", symbol, this.getComptimeType(symbol), null, false, null));
 				}
 			}
 		}
@@ -175,7 +175,16 @@ export class Module {
 		return exports;
 	}
 
-	private isComptimeExportType(checker: ts.TypeChecker, symbol: ts.Symbol): ComptimeType | null {
+	public getComptimeTypeFromIdentifier(name: ts.Identifier) {
+		const symbol = this.checker.getSymbolAtLocation(name);
+		if (!symbol)
+			throw new Error(`Could not get symbol for export ${name.text}`);
+
+		const declSymbol = symbol.flags & ts.SymbolFlags.Alias ? this.checker.getAliasedSymbol(symbol) : symbol;
+		return this.getComptimeType(declSymbol);
+	}
+
+	public getComptimeType(symbol: ts.Symbol): ComptimeType | null {
 		// TODO: also resolve wrapped function calls that end up in a comptime or comptime.fn 
 		const declaration = symbol.valueDeclaration;
 
@@ -190,12 +199,12 @@ export class Module {
 
 		const callee = initializer.expression;
 
-		const isComptimeSymbol = (symbol: ts.Node) => this.comptimeImports.flatMap(imp => imp.symbols).some(s => s.localSymbol === checker.getSymbolAtLocation(symbol));
+		const isComptimeSymbol = (symbol: ts.Node) => this.comptimeImports.flatMap(imp => imp.symbols).some(s => s.localSymbol === this.checker.getSymbolAtLocation(symbol));
 
 		if (ts.isIdentifier(callee)) {
 			return isComptimeSymbol(callee) ? "comptime" : null;
-		} else if (ts.isPropertyAccessExpression(callee) && callee.name.text === "fn") {
-			return isComptimeSymbol(callee.expression) ? "comptime.fn" : null;
+		} else if (ts.isPropertyAccessExpression(callee) && callee.name.text === "macro") {
+			return isComptimeSymbol(callee.expression) ? "comptime.macro" : null;
 		}
 		return null;
 	}
@@ -206,41 +215,46 @@ export class Module {
 			if (e.type === "*") {
 				if (e.isExternal) {
 					const sourcePath = e.sourcePackage.getRealtiveSourcePathFromTyping(e.path);
+					const p = e.sourcePackage.getComptimePath(sourcePath);
 					const exports = e.sourcePackage.comptimeManifest?.[sourcePath];
 					if (exports) {
 						for (const ex in exports) {
 							const symbol = checker.getExportsOfModule(e.moduleSymbol).find(s => s.name === ex);
 							if (!symbol)
 								throw new Error(`Could not get symbol for export ${ex}`);
-							this.exports.push(new Export(ex, symbol, exports[ex]!))
+							this.exports.push(new Export(ex, symbol, exports[ex]!, e.path, true, p))
 						}
 					}
 				} else {
+					const p = e.sourcePackage.getComptimePath(e.path);
 					const sourceModule = modules.get(e.path);
 					if (!sourceModule)
 						throw new Error(`Could not get source module for ${e.path}!`);
 					for (const symbol of checker.getExportsOfModule(e.moduleSymbol)) {
 						const declSymbol = symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
-						this.exports.push(new Export(symbol.name, symbol, sourceModule.isComptimeExportType(checker, declSymbol)));
+						this.exports.push(new Export(symbol.name, symbol, sourceModule.getComptimeType(declSymbol), e.path, false, p));
 					}
 				}
 			} else {
 				if (e.isExternal) {
-					const sourcePath = e.sourcePackage.getRealtiveSourcePathFromTyping(e.path);
+					const sourcePath = e.sourcePackage.getRealtiveSourcePath(e.path);
+					const p = e.sourcePackage.getComptimePath(sourcePath);
 					const exports = e.sourcePackage.comptimeManifest?.[sourcePath];
 					for (const element of e.elements) {
 						const name = (element.propertyName ?? element.name).text;
 						const symbol = checker.getExportsOfModule(e.moduleSymbol).find(s => s.name === name);
+						
 						if (!symbol)
 							throw new Error(`Could not get symbol for export ${name}`);
-						
-						if(!exports?.[name])
+
+						if (!exports?.[name])
 							throw new Error(`Could not get symbol for export ${name}`);
 
-						this.exports.push(new Export(name, symbol, exports?.[name]));
+						this.exports.push(new Export(name, symbol, exports?.[name], e.path, true, p));
 					}
 				} else {
 					const sourceModule = modules.get(e.path);
+					const p = e.sourcePackage.getComptimePath(e.path);
 					if (!sourceModule)
 						throw new Error(`Could not get source module for ${e.path}!`);
 					for (const element of e.elements) {
@@ -252,12 +266,12 @@ export class Module {
 						const declSymbol = symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
 						const declaration = declSymbol.valueDeclaration ?? declSymbol.declarations?.[0];
 						const declarationModule = declaration && modules.get(declaration.getSourceFile().fileName);
-						const type = declarationModule?.isComptimeExportType(checker, declSymbol) ?? null;
-						this.exports.push(new Export(element.name.text, symbol, type));
+						const type = declarationModule?.getComptimeType(declSymbol) ?? null;
+						this.exports.push(new Export(element.name.text, symbol, type, e.path, false, p));
 					}
 				}
 			}
-		})
+		});
 	}
 }
 
@@ -273,19 +287,19 @@ export class Import {
 		this.path = path;
 		this.modulePath = resolvedModule.resolvedFileName;
 		this.isExternal = resolvedModule.isExternalLibraryImport || false;
+		this.symbols = symbols;
 
 		if (this.isExternal) {
 			this.sourcePackage = Package.fromModulePath(this.modulePath);
+			const comptimePath = this.sourcePackage.comptimeOutput;
+			const srcPath = this.sourcePackage.sourceDir;
+			this.comptimePath = this.modulePath.replace(srcPath, comptimePath).replace(/(\.d)?\.tsx?$/, ".js");
 		} else {
 			this.sourcePackage = compiler.root;
+			const comptimePath = this.sourcePackage.comptimeOutput;
+			const srcPath = this.sourcePackage.sourceDir;
+			this.comptimePath = this.modulePath.replace(srcPath, comptimePath).replace(/\.tsx?$/, ".js");
 		}
-		const comptimePath = this.sourcePackage.comptimeOutput;
-		const srcPath = this.sourcePackage.tsconfig.options.rootDir || this.sourcePackage.path;
-		this.comptimePath = this.modulePath.replace(srcPath, comptimePath).replace(/\.tsx?$/, ".js");
-
-		this.symbols = symbols;
-		// TODO: for each symbol import, check if its external 
-		// and if the manifest exposes that imported symbol as comptime 
 	}
 }
 
@@ -302,16 +316,22 @@ export class Export {
 	public readonly symbol: ts.Symbol | null;
 	public readonly isComptime: boolean;
 	public readonly type: ComptimeType | null;
+	public readonly from: string | null;
+	public readonly isExternal: boolean;
+	public readonly comptimePath: string | null;
 
-	public constructor(name: string, symbol: ts.Symbol | null, type: ComptimeType | null) {
+	public constructor(name: string, symbol: ts.Symbol | null, type: ComptimeType | null, from: string | null, external: boolean, comptimePath: string | null) {
 		this.name = name;
 		this.symbol = symbol;
 		this.type = type;
 		this.isComptime = type !== null;
+		this.from = from;
+		this.isExternal = external;
+		this.comptimePath = comptimePath;
 	}
 };
 
-export type ComptimeType = "comptime" | "comptime.fn";
+export type ComptimeType = "comptime" | "comptime.fn" | "comptime.macro";
 
 type AliasedExport = {
 	path: string;

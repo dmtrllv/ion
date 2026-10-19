@@ -167,12 +167,11 @@ export const createMemo = <T>(id: string, closure: () => T): Memo<T> => {
 	return getActiveScope().getOrInsertSlot(id, () => new Memo(closure));
 };
 
-export const memo = comptime((ctx) => {
+export const memo = comptime(() => {
 	let count = 0;
-	const fnRef = ctx.syntax.ref(createMemo);
 
-	return comptime.fn(<T>(ctx: Comptime.Context, value: Comptime.Expr<() => T>) => {
+	return comptime.macro(<T>(ctx: Comptime.Context, value: Comptime.Expr<() => T>) => {
 		const id = ctx.syntax.literal("memo_" + count++);
-		return ctx.syntax.call<Memo<T>, [string, () => T]>(fnRef, id, value);
+		return ctx.syntax.call<Memo<T>, [string, () => T]>(createMemo, id, value);
 	});
 });

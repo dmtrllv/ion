@@ -40,9 +40,13 @@ const macro = <R, Args extends any[]>(val: (ctx: Comptime.Context, ...args: Macr
 };
 
 const constfn = <R, Args extends any[]>(closure: (...args: Args) => R): ((...args: Args) => R) => {
-	if (!__IS_COMPTIME__)
-		throw new Error("Whoops const fn call is not removed");
-	return closure;
+	const wrapper = (() => {
+		console.log(new Error("macro must only be invoked by the compiler"));
+	}) as any;
+
+	wrapper["__COMPTIME_CONST_FN__"] = closure;
+
+	return wrapper;
 }
 
 export const comptime: Comptime = Object.assign(comptimeWrapper, {

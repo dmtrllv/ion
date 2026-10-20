@@ -50,7 +50,7 @@ export class Module {
 								const propertySymbol = compiler.typeChecker.getSymbolAtLocation(access.name);
 								assert.ok(propertySymbol, `Could not get symbol...`);
 								if (propertySymbol.name === "fn") {
-									copmtimeItems.set(name, { name, type: "comptime.fn", symbol: declSymbol, comptimeModulePath: this.comptimePath, isExternal: false });
+									copmtimeItems.set(name, { name, type: "comptime.fn.decl", symbol: declSymbol, comptimeModulePath: this.comptimePath, isExternal: false });
 								} else if (propertySymbol.name === "macro") {
 									copmtimeItems.set(name, { name, type: "comptime.macro", symbol: declSymbol, comptimeModulePath: this.comptimePath, isExternal: false });
 								}

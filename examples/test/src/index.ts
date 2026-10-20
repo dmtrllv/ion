@@ -3,8 +3,6 @@ import { effect, scope, ScopeEvent, signal } from "@ion/signal";
 import { randomQuote } from "./comptime-test.js";
 import { two } from "./two.js";
 
-//export { signal } from "@ion/signal";
-
 console.log(two);
 
 const app = scope(() => {
@@ -68,12 +66,3 @@ app.onEvent(event => {
 		}
 	}
 });
-
-//const result = app.run();
-
-//if (result.error) {
-//	console.error("Initial scope execution failed:", result.error);
-//} else {
-//	result.data.addTodo("test");
-//	process();
-//}

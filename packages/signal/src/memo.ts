@@ -1,6 +1,6 @@
 
-import { Comptime, comptime } from "@ion/comptime";
-import { ReactiveObserver, ReactiveResult, ReactiveSource, trackDependency, withObserver } from "./reactive.js";
+import { type Comptime, comptime } from "@ion/comptime";
+import { type ReactiveObserver, type ReactiveResult, type ReactiveSource, trackDependency, withObserver } from "./reactive.js";
 import { getActiveScope } from "./scope.js";
 
 export class Memo<T> implements ReactiveSource, ReactiveObserver {

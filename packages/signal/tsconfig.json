@@ -4,7 +4,8 @@
 		"rootDir": "src",
 		"target": "es2025",
 		"module": "nodenext",
-		"stripInternal": true
+		"stripInternal": true,
+		"verbatimModuleSyntax": true
 	},
 	"extends": "@tsconfig/strictest"
 }

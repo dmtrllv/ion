@@ -27,16 +27,12 @@ export class ComptimeModule {
 
 		this.module.comptimeDeclarations.values().forEach(val => {
 			this.comptimeSymbols.set(val.symbol, val);
-			console.log("add", val.name);
 		});
 		this.comptimeImports.values().forEach(v => {
 			v.comptimeSymbols.values().forEach(val => {
 				this.comptimeSymbols.set(val.symbol, val);
-				console.log("add", val.name);
 			});
 		});
-
-		console.log(Array.from(this.comptimeSymbols.keys().map(k => k.name)))
 
 		this.compile(compiler);
 	}
@@ -44,11 +40,16 @@ export class ComptimeModule {
 	public async load() {
 		if (!this.runtimeModule) {
 			this.runtimeModule = await import(`file://${this.path}`);
+			for (const [symbol, item] of this.comptimeSymbols) {
+				item.result = this.runtimeModule[symbol.name];
+				console.log(`file://${this.path} loaded`, symbol.name, item.result);
+			}
 			await Promise.all(this.comptimeImports.values().map(async i => {
 				if (i.isExternal) {
 					const mod = await import(`file://${i.comptimePath}`);
 					for (const [_name, item] of i.comptimeSymbols) {
-						item.result = mod[_name];
+						if (_name in mod)
+							item.result = mod[_name];
 					}
 				}
 			}));
@@ -86,21 +87,42 @@ export class ComptimeModule {
 		}
 	}
 
-	private readonly transformer = (compiler: Compiler): ts.TransformerFactory<ts.SourceFile> => (ctx) => {
-		const visit: ts.Visitor = node => {
-			if (ts.isImportDeclaration(node)) {
-				return this.rewriteImport(node);
-			} else if (ts.isVariableStatement(node)) {
-				return this.parseComptime(compiler, node);
-			} else {
-				return ts.visitEachChild(node, visit, ctx);
-			}
-		};
+	private readonly transformer = (compiler: Compiler): ts.TransformerFactory<ts.SourceFile> => () => {
+		return sourceFile => {
+			const statements: ts.Statement[] = [];
 
-		return sourceFile => ts.visitNode(sourceFile, visit) as ts.SourceFile;
+			for (const statement of sourceFile.statements) {
+				if (ts.isImportDeclaration(statement)) {
+					statements.push(this.rewriteImport(statement));
+					continue;
+				}
+
+				if (ts.isVariableStatement(statement)) {
+					const stmt = this.parseComptime(compiler, statement);
+					if (stmt) {
+						statements.push(stmt);
+						continue;
+					}
+
+					if (this.isRemovableStatement(compiler, statement))
+						continue;
+
+					statements.push(statement);
+					continue;
+				}
+
+				if (ts.isExpressionStatement(statement) && this.isRemovableStatement(compiler, statement))
+					continue;
+
+				statements.push(statement);
+
+			}
+
+			return ts.factory.updateSourceFile(sourceFile, statements);
+		};
 	}
 
-	private rewriteImport(node: ts.ImportDeclaration): ts.Node {
+	private rewriteImport(node: ts.ImportDeclaration): ts.Statement {
 		if (!ts.isStringLiteral(node.moduleSpecifier))
 			return node;
 
@@ -153,7 +175,7 @@ export class ComptimeModule {
 					} else if (ts.isNamedImports(clause.namedBindings)) {
 						const symbols = new Map<string, ComptimeItem>();
 						const otherImports: string[] = [];
-						
+
 						let comptimePath: string | undefined;
 
 						if (isExternal) {
@@ -207,26 +229,87 @@ export class ComptimeModule {
 		return imports;
 	}
 
-	private parseComptime(compiler: Compiler, node: ts.VariableStatement): ts.Node {
+	private parseComptime(compiler: Compiler, node: ts.VariableStatement): ts.Statement | undefined {
 		for (const declaration of node.declarationList.declarations) {
 			if (ts.isIdentifier(declaration.name) && declaration.initializer) {
 				let declSymbol = compiler.typeChecker.getSymbolAtLocation(declaration.name);
 				assert.ok(declSymbol, "Could not get declaration symbol!");
 				declSymbol = declSymbol.flags & ts.SymbolFlags.Alias ? compiler.typeChecker.getAliasedSymbol(declSymbol) : declSymbol;
 				const s = this.comptimeSymbols.get(declSymbol);
+
 				if (s) {
 					const modifiers = node.modifiers ? [...node.modifiers] : [];
-					if (!modifiers.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+					if (!modifiers.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword))
 						modifiers.unshift(ts.factory.createModifier(ts.SyntaxKind.ExportKeyword));
-					}
-					return ts.factory.updateVariableStatement(node, modifiers, node.declarationList);
-				}
 
+					return ts.factory.updateVariableStatement(node, modifiers, node.declarationList);
+				} else if (ts.isCallExpression(declaration.initializer) && ts.isIdentifier(declaration.initializer.expression)) {
+					let callSymbol = compiler.typeChecker.getSymbolAtLocation(declaration.initializer.expression);
+					assert.ok(callSymbol, "Could not get declaration symbol!");
+					callSymbol = callSymbol.flags & ts.SymbolFlags.Alias ? compiler.typeChecker.getAliasedSymbol(callSymbol) : callSymbol;
+					const c = this.comptimeSymbols.get(callSymbol);
+					if (c && c.type === "comptime.fn.decl") {
+						const modifiers = node.modifiers ? [...node.modifiers] : [];
+						if (!modifiers.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword))
+							modifiers.unshift(ts.factory.createModifier(ts.SyntaxKind.ExportKeyword));
+
+						this.comptimeSymbols.set(declSymbol, {
+							symbol: declSymbol,
+							comptimeModulePath: this.path,
+							isExternal: false,
+							name: declSymbol.name,
+							type: "comptime.fn",
+						});
+
+						return ts.factory.updateVariableStatement(node, modifiers, node.declarationList);
+					}
+				}
 			}
 		}
 
-		return node;
+		return undefined;
 	}
+
+
+	private isRemovableStatement(compiler: Compiler, node: ts.VariableStatement | ts.ExpressionStatement): boolean {
+		const expr = ts.isVariableStatement(node) ? node.declarationList.declarations[0]?.initializer : node.expression;
+		if (!expr)
+			return false;
+
+		if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr))
+			return false;
+
+		if (ts.isCallExpression(expr)) {
+			const callee = expr.expression;
+
+			if (ts.isIdentifier(callee)) {
+				let declSymbol = compiler.typeChecker.getSymbolAtLocation(callee);
+				assert.ok(declSymbol);
+				declSymbol = declSymbol.flags & ts.SymbolFlags.Alias ? compiler.typeChecker.getAliasedSymbol(declSymbol) : declSymbol;
+				return !this.comptimeSymbols.has(declSymbol);
+			}
+
+			if (ts.isPropertyAccessExpression(callee)) {
+				let receiverSymbol = compiler.typeChecker.getSymbolAtLocation(callee.expression);
+				if (!receiverSymbol)
+					return false;
+				receiverSymbol = receiverSymbol.flags & ts.SymbolFlags.Alias ? compiler.typeChecker.getAliasedSymbol(receiverSymbol) : receiverSymbol;
+
+				if (receiverSymbol.flags & ts.SymbolFlags.Variable)
+					return true;
+
+				let declSymbol = compiler.typeChecker.getSymbolAtLocation(callee.name);
+				if (!declSymbol)
+					return false;
+				declSymbol = declSymbol.flags & ts.SymbolFlags.Alias ? compiler.typeChecker.getAliasedSymbol(declSymbol) : declSymbol;
+				return !this.comptimeSymbols.has(declSymbol);
+			}
+		}
+
+		return false;
+	}
+
+
 }
 
 export type ComptimeImport = {

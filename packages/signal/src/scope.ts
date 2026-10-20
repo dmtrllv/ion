@@ -1,8 +1,8 @@
 
 import { Effect } from "./effect.js";
 import { Memo } from "./memo.js";
-import { ReactiveObserver, ReactiveSource, Unsubscriber, withObserver } from "./reactive.js";
-import { Slot, SlotData } from "./slot.js";
+import { type ReactiveObserver, type ReactiveSource, type Unsubscriber, withObserver } from "./reactive.js";
+import { Slot, type SlotData } from "./slot.js";
 
 export interface GlobalScope {
 	flush(): void;

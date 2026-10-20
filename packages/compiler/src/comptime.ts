@@ -12,6 +12,7 @@ export type ComptimeManifest = {
 export type ComptimeType =
 	| "comptime"
 	| "comptime.fn"
+	| "comptime.fn.decl"
 	| "comptime.macro";
 
 export type ComptimeItem = {

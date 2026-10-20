@@ -1,6 +1,6 @@
-import { Comptime, comptime } from "@ion/comptime";
+import { type Comptime, comptime } from "@ion/comptime";
 import { getActiveScope } from "./scope.js";
-import { ReactiveObserver, trackDependency, Unsubscriber } from "./reactive.js";
+import { type ReactiveObserver, trackDependency, type Unsubscriber } from "./reactive.js";
 
 export class Signal<T> {
 	readonly #id: string;

@@ -1,7 +1,7 @@
 
-import { Comptime, comptime } from "@ion/comptime";
+import { type Comptime, comptime } from "@ion/comptime";
 import { getActiveScope, withActiveScope } from "./scope.js";
-import { ReactiveObserver, ReactiveResult, ReactiveSource, withObserver } from "./reactive.js";
+import { type ReactiveObserver, type ReactiveResult, type ReactiveSource, withObserver } from "./reactive.js";
 
 export type EffectCleanupCallback = () => void;
 export type EffectClosure = () => void | EffectCleanupCallback;

@@ -34,9 +34,15 @@ export type ComptimeBinding = {
 };
 
 export const resolveComptimeSymbols = (compiler: Compiler): ComptimeSymbols => {
-	const comptimePackagePath = realpathSync(resolve(node_modules, "@ion/comptime/src/index.ts"));
-	const source = compiler.program.getSourceFile(comptimePackagePath);
-	assert.ok(source, "Could not load @ion/comptime source at " + comptimePackagePath);
+	let comptimePackagePath = resolve(node_modules, "@ion/comptime/src/index.ts");
+	let source = compiler.program.getSourceFile(comptimePackagePath);
+	if(!source) {
+		comptimePackagePath = realpathSync(comptimePackagePath);
+		source = compiler.program.getSourceFile(comptimePackagePath);
+	}
+	if(!source)
+		return {};
+
 	const moduleSymbol = compiler.typeChecker.getSymbolAtLocation(source);
 	assert.ok(source, "Could not get module Symbol for " + comptimePackagePath);
 
@@ -74,7 +80,7 @@ export const resolveComptimeSymbols = (compiler: Compiler): ComptimeSymbols => {
 }
 
 export type ComptimeSymbols = {
-	readonly comptime: ts.Symbol;
-	readonly fn: ts.Symbol;
-	readonly macro: ts.Symbol;
+	readonly comptime?: ts.Symbol;
+	readonly fn?: ts.Symbol;
+	readonly macro?: ts.Symbol;
 };

@@ -38,7 +38,6 @@ export class Evaluator {
 			throw new Error(`TypeScript emit failed:\n${diagnostics}`);
 		}
 
-		console.log(emitResult.emittedFiles);
 	}
 
 	//private evaluateAndCompile(compiler: Compiler, comptimeModule: ComptimeModule, comptimeModules: ComptimeModule[]) {
@@ -454,10 +453,12 @@ export class Evaluator {
 			}
 
 			const val = comptimeModule.getComptimeValue(s.name);
+			
 			if (val["__COMPTIME_MACRO_FN__"] || val["__COMPTIME_CONST_FN__"]) {
 				remove = true;
 				return declaration;
 			}
+
 			return ts.factory.updateVariableDeclaration(declaration, declaration.name, declaration.exclamationToken, declaration.type, toExpression(val));
 		});
 

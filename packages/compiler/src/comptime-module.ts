@@ -42,7 +42,6 @@ export class ComptimeModule {
 			this.runtimeModule = await import(`file://${this.path}`);
 			for (const [symbol, item] of this.comptimeSymbols) {
 				item.result = this.runtimeModule[symbol.name];
-				console.log(`file://${this.path} loaded`, symbol.name, item.result);
 			}
 			await Promise.all(this.comptimeImports.values().map(async i => {
 				if (i.isExternal) {
@@ -151,9 +150,12 @@ export class ComptimeModule {
 
 				if (importPath === "@ion/comptime" || !clause)
 					return;
+				else if(importPath.startsWith("node:"))
+					return;
 
 				const result = ts.resolveModuleName(importPath, this.module.sourceFile.fileName, compiler.config.options, ts.sys);
 				const resolvedModule = result.resolvedModule;
+				//if
 				assert.ok(resolvedModule, `Could not resolve module path for import ${importPath}`);
 				const path = resolvedModule.resolvedFileName;
 				const isExternal = resolvedModule.isExternalLibraryImport || false;

@@ -11,7 +11,8 @@
 	"type": "module",
 	"license": "MIT",
 	"dependencies": {
-		"@ion/compiler": "file:../../packages/compiler",
+		"@ion/compiler": "0.0.1",
+		"@ion/comptime": "0.0.1",
 		"typescript": "6.0.3"
 	},
 	"bin": {

@@ -1,0 +1,25 @@
+{
+	"name": "@ion/test-app",
+	"version": "0.0.1",
+	"main": "./dist/index.js",
+	"scripts": {
+		"build": "ion build"
+	},
+	"author": "Dimitri Lilov",
+	"license": "MIT",
+	"type": "module",
+	"ion": {
+		"comptime": {
+			"output": "./comptime-build"
+		}
+	},
+	"dependencies": {
+		"@ion/dom": "file:../../tars/ion-dom-0.0.1.tgz",
+		"@ion/signal": "file:../../tars/ion-signal-0.0.1.tgz",
+		"@ion/tsx": "file:../../tars/ion-tsx-0.0.1.tgz"
+	},
+	"devDependencies": {
+		"ion": "file:../../tools/ion",
+		"typescript": "^6.0.3"
+	}
+}

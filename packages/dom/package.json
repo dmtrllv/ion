@@ -3,7 +3,8 @@
 	"version": "0.0.1",
 	"main": "dist/index.js",
 	"scripts": {
-		"build": "ion build --lib"
+		"build": "ion build --lib",
+		"pack": "npm pack --pack-destination ../../tars"
 	},
 	"author": "Dimitri Lilov",
 	"type": "module",
@@ -14,9 +15,9 @@
 		}
 	},
 	"devDependencies": {
-		"@ion/compiler": "file:../compiler",
-		"@ion/signal": "file:../signal",
-		"@ion/tsx": "file:../tsx"
+		"@ion/compiler": "0.0.1",
+		"@ion/signal": "0.0.1",
+		"@ion/tsx": "0.0.1"
 	},
 	"exports": {
 		".": {

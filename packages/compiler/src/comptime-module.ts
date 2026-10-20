@@ -1,29 +1,67 @@
-import * as ts from "typescript";
-import { Module } from "./module.js";
-import { mkdirSync, writeFileSync } from "fs";
+import ts from "typescript";
 import { Compiler } from "./compiler.js";
-import { dirname, relative } from "path";
+import { Module } from "./module.js";
+import { ComptimeItem } from "./comptime.js";
+import assert from "node:assert";
 import { Package } from "./package.js";
+import { dirname, relative } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 export class ComptimeModule {
 	public readonly module: Module;
-	public readonly path: string;
-	public readonly buildId: number;
-	public readonly compiler: Compiler;
+	public readonly comptimeImports: Map<string, ComptimeImport>;
+	public readonly comptimeSymbols: Map<ts.Symbol, ComptimeItem>;
 
-	public readonly comptimeMacros: Map<string, { declaration: ts.VariableDeclaration, symbol: ts.Symbol }> = new Map();
-	public readonly comptimeDeclarations: Map<string, { id: string, declaration: ts.VariableDeclaration, symbol: ts.Symbol }> = new Map();
+	private runtimeModule?: any;
 
-	public constructor(buildId: number, compiler: Compiler, module: Module, path: string) {
-		this.buildId = buildId;
-		this.compiler = compiler;
-		this.module = module;
-		this.path = path;
+	public get path() {
+		return this.module.comptimePath;
 	}
 
-	public compile() {
-		const result = ts.transform(this.module.source, [this.transformer]);
+	public constructor(compiler: Compiler, module: Module) {
+		this.module = module;
 
+		this.comptimeImports = this.resolveComptimeImports(compiler);
+
+		this.comptimeSymbols = new Map<ts.Symbol, ComptimeItem>();
+
+		this.module.comptimeDeclarations.values().forEach(val => {
+			this.comptimeSymbols.set(val.symbol, val);
+			console.log("add", val.name);
+		});
+		this.comptimeImports.values().forEach(v => {
+			v.comptimeSymbols.values().forEach(val => {
+				this.comptimeSymbols.set(val.symbol, val);
+				console.log("add", val.name);
+			});
+		});
+
+		console.log(Array.from(this.comptimeSymbols.keys().map(k => k.name)))
+
+		this.compile(compiler);
+	}
+
+	public async load() {
+		if (!this.runtimeModule) {
+			this.runtimeModule = await import(`file://${this.path}`);
+			await Promise.all(this.comptimeImports.values().map(async i => {
+				if (i.isExternal) {
+					const mod = await import(`file://${i.comptimePath}`);
+					for (const [_name, item] of i.comptimeSymbols) {
+						item.result = mod[_name];
+					}
+				}
+			}));
+		}
+	}
+
+	public getComptimeValue(name: string) {
+		assert.ok(this.runtimeModule, "Runtime Module is not loaded!");
+		return this.runtimeModule[name];
+	}
+
+	public compile(compiler: Compiler) {
+		const result = ts.transform(this.module.sourceFile, [this.transformer(compiler)]);
 		try {
 			const transformed = result.transformed[0]!;
 			const transformedSource = ts.createPrinter({ removeComments: true }).printFile(transformed);
@@ -32,12 +70,12 @@ export class ComptimeModule {
 					target: ts.ScriptTarget.ESNext,
 					module: ts.ModuleKind.ESNext,
 					removeComments: true,
-					jsxImportSource: this.compiler.config.options.jsxImportSource!,
+					jsxImportSource: compiler.config.options.jsxImportSource!,
 					jsx: ts.JsxEmit.ReactJSX,
-					jsxFragmentFactory: this.compiler.config.options.jsxFragmentFactory!,
-					jsxFactory: this.compiler.config.options.jsxFactory!,
+					jsxFragmentFactory: compiler.config.options.jsxFragmentFactory!,
+					jsxFactory: compiler.config.options.jsxFactory!,
 				},
-				fileName: this.module.source.fileName,
+				fileName: this.module.sourceFile.fileName,
 			});
 			mkdirSync(dirname(this.path), { recursive: true });
 			writeFileSync(this.path, js.outputText, "utf-8");
@@ -48,150 +86,154 @@ export class ComptimeModule {
 		}
 	}
 
-	private readonly transformer: ts.TransformerFactory<ts.SourceFile> = (context) => {
+	private readonly transformer = (compiler: Compiler): ts.TransformerFactory<ts.SourceFile> => (ctx) => {
 		const visit: ts.Visitor = node => {
 			if (ts.isImportDeclaration(node)) {
 				return this.rewriteImport(node);
 			} else if (ts.isVariableStatement(node)) {
-				return this.parseComptime(node);
-			} else if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
-				return this.rewriteExport(node);
-			} else if (ts.isCallExpression(node)) {
-				return this.parseComptimeCall(node);
+				return this.parseComptime(compiler, node);
 			} else {
-				//return node;
-				return ts.visitEachChild(node, visit, context);
+				return ts.visitEachChild(node, visit, ctx);
 			}
 		};
 
 		return sourceFile => ts.visitNode(sourceFile, visit) as ts.SourceFile;
 	}
 
-	private readonly parseComptimeCall = (node: ts.CallExpression): ts.Node | undefined => {
-		if (ts.isIdentifier(node.expression)) {
-			//console.log(node.expression.text)
-		}
-		return node;
-	}
-
-	private readonly rewriteExport = (node: ts.ExportDeclaration): ts.Node | undefined => {
-		const clause = node.exportClause;
-
-		if (!clause)
+	private rewriteImport(node: ts.ImportDeclaration): ts.Node {
+		if (!ts.isStringLiteral(node.moduleSpecifier))
 			return node;
 
-		const path = (node.moduleSpecifier as ts.StringLiteral).text;
-
-		if (path === "@ion/comptime")
-			return node;
-
-		const result = ts.resolveModuleName(path, this.module.source.fileName, this.compiler.config.options, ts.sys);
-		if (!result.resolvedModule) {
-			throw new Error(`Could not resolve import path for ${path}!`);
-		}
-		const pkg = Package.fromModulePath(result.resolvedModule.resolvedFileName);
-		let ctp: string;
-		if (result.resolvedModule.isExternalLibraryImport) {
-			let relPath = pkg.getRealtiveSourcePathFromTyping(result.resolvedModule.resolvedFileName);
-			ctp = pkg.getComptimePath(relPath);
-			this.compiler.root.path
-			const foundExport = this.module.exports.find(e => {
-				return e.comptimePath === ctp;
-			});
-			ctp = relative(dirname(this.module.path), ctp);
-			if (!foundExport || !foundExport.isExternal)
-				return node;
-
-		} else {
-			ctp = pkg.getComptimePath(result.resolvedModule.resolvedFileName)
-		}
-
-		return ts.factory.updateExportDeclaration(
-			node,
-			node.modifiers,
-			false,
-			node.exportClause,
-			ts.factory.createStringLiteral(ctp + `?id=${this.buildId}`),
-			node.attributes,
-		);
-	}
-
-	private readonly rewriteImport = (node: ts.ImportDeclaration): ts.VisitResult<ts.Node | undefined> => {
 		const clause = node.importClause;
 
-		if (!clause)
-			return node;
-		const path = (node.moduleSpecifier as ts.StringLiteral).text;
-
-		if (path === "@ion/comptime")
+		if (node.moduleSpecifier.text === "@ion/comptime" || !clause)
 			return node;
 
-		const foundImport = this.module.imports.find(i => i.path === path);
-
-		if (!foundImport)
-			throw new Error(`Could not find import for ${path}!`);
-
-		if (!foundImport.isExternal)
+		const comptimeImport = this.comptimeImports.get(node.moduleSpecifier.text);
+		if (!comptimeImport?.isExternal) {
 			return node;
-
-		return ts.factory.updateImportDeclaration(
-			node,
-			node.modifiers,
-			node.importClause,
-			ts.factory.createStringLiteral(relative(dirname(this.module.path), foundImport.comptimePath) + `?id=${this.buildId}`),
-			node.attributes,
-		);
+		}
+		const path = relative(dirname(this.module.path), comptimeImport.comptimePath!);
+		const importPath = ts.factory.createStringLiteral(path);
+		return ts.factory.updateImportDeclaration(node, node.modifiers, node.importClause, importPath, node.attributes,);
 	}
 
-	private readonly parseComptime = (node: ts.VariableStatement): ts.VisitResult<ts.Node | undefined> => {
-		let isComptime = false;
-		const declarations: ts.VariableDeclaration[] = [];
+	private resolveComptimeImports(compiler: Compiler): Map<string, ComptimeImport> {
+		const imports = new Map<string, ComptimeImport>();
 
+		this.module.sourceFile.statements.forEach(stmt => {
+			if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
+				const clause = stmt.importClause;
+
+				const importPath = stmt.moduleSpecifier.text;
+
+				if (importPath === "@ion/comptime" || !clause)
+					return;
+
+				const result = ts.resolveModuleName(importPath, this.module.sourceFile.fileName, compiler.config.options, ts.sys);
+				const resolvedModule = result.resolvedModule;
+				assert.ok(resolvedModule, `Could not resolve module path for import ${importPath}`);
+				const path = resolvedModule.resolvedFileName;
+				const isExternal = resolvedModule.isExternalLibraryImport || false;
+
+				const pkg = isExternal ? Package.findFromSource(resolvedModule.resolvedFileName) : this.module.package;
+
+				if (isExternal && !pkg.isComptime) {
+					return;
+				}
+
+				if (clause.name) {
+					console.log(`Default imports is not supported for now. At ${this.module.package.getRelativeSourcePath(this.module.path)}`);
+				}
+
+				if (clause.namedBindings) {
+					if (ts.isNamespaceImport(clause.namedBindings)) {
+						console.log(`Namespaced imports is not supported for now. At ${this.module.package.getRelativeSourcePath(this.module.path)}`);
+						return;
+					} else if (ts.isNamedImports(clause.namedBindings)) {
+						const symbols = new Map<string, ComptimeItem>();
+						const otherImports: string[] = [];
+						
+						let comptimePath: string | undefined;
+
+						if (isExternal) {
+							const relativePath = pkg.getRelativeSourcePath(path);
+							const exports = pkg.comptimeManifest?.exports?.[relativePath];
+							if (!exports)
+								return;
+
+							comptimePath = path.replace(pkg.sourceDir, pkg.comptimeOutput).replace(/\.tsx?$/, ".js");
+
+							for (const element of clause.namedBindings.elements) {
+								const txt = element.propertyName?.text ?? element.name.text;
+								assert.ok(txt);
+								if (!exports[txt])
+									continue;
+
+								let symbol = compiler.typeChecker.getSymbolAtLocation(element.name);
+								assert.ok(symbol);
+								symbol = symbol.flags & ts.SymbolFlags.Alias ? compiler.typeChecker.getAliasedSymbol(symbol) : symbol;
+								const type = exports[txt]!;
+								symbols.set(txt, { name: txt, symbol, type, comptimeModulePath: comptimePath, isExternal: true });
+							}
+						} else {
+							const targetModule = compiler.modules.get(path);
+							assert.ok(targetModule, `Could not get local module at ${path}!`);
+							for (const element of clause.namedBindings.elements) {
+								const txt = element.propertyName?.text ?? element.name.text;
+								assert.ok(txt);
+								const comptimeItem = targetModule.comptimeDeclarations.get(txt);
+								if (comptimeItem) {
+									symbols.set(txt, comptimeItem);
+								} else {
+									otherImports.push(txt);
+								}
+							}
+						}
+
+						imports.set(importPath, {
+							importPath: importPath,
+							comptimeSymbols: symbols,
+							comptimePath,
+							declaration: stmt,
+							isExternal,
+							otherImports
+						});
+					}
+				}
+			}
+		});
+
+		return imports;
+	}
+
+	private parseComptime(compiler: Compiler, node: ts.VariableStatement): ts.Node {
 		for (const declaration of node.declarationList.declarations) {
 			if (ts.isIdentifier(declaration.name) && declaration.initializer) {
-				const symbol = this.module.checker.getSymbolAtLocation(declaration.name);
-
-				if (!symbol)
-					throw new Error(`Could not get symbol for export ${declaration.name.text}`);
-
-				const declSymbol = symbol.flags & ts.SymbolFlags.Alias ? this.module.checker.getAliasedSymbol(symbol) : symbol;
-
-				const comptimeType = this.module.getComptimeType(symbol);
-
-				if (comptimeType === "comptime.macro") {
-					isComptime = true;
-					this.comptimeMacros.set(declaration.name.text, { declaration, symbol: declSymbol });
-				} else if (comptimeType === "comptime" && ts.isCallExpression(declaration.initializer)) {
-					isComptime = true;
-
-					const id = this.compiler.comptimeResults.reserveComptimeResult(this.compiler.root.json.name!, declaration.initializer);
-					this.comptimeDeclarations.set(declaration.name.text, { id, declaration, symbol: declSymbol });
-
-					const call = declaration.initializer;
-					const initializer = ts.factory.updateCallExpression(call,call.expression,call.typeArguments,[...call.arguments, ts.factory.createStringLiteral(id)]);
-					declarations.push(ts.factory.updateVariableDeclaration(declaration, declaration.name, declaration.exclamationToken, declaration.type, initializer));
-				} else {
-					declarations.push(declaration);
+				let declSymbol = compiler.typeChecker.getSymbolAtLocation(declaration.name);
+				assert.ok(declSymbol, "Could not get declaration symbol!");
+				declSymbol = declSymbol.flags & ts.SymbolFlags.Alias ? compiler.typeChecker.getAliasedSymbol(declSymbol) : declSymbol;
+				const s = this.comptimeSymbols.get(declSymbol);
+				if (s) {
+					const modifiers = node.modifiers ? [...node.modifiers] : [];
+					if (!modifiers.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+						modifiers.unshift(ts.factory.createModifier(ts.SyntaxKind.ExportKeyword));
+					}
+					return ts.factory.updateVariableStatement(node, modifiers, node.declarationList);
 				}
-			} else {
-				declarations.push(declaration);
+
 			}
-		}
-
-		if (isComptime) {
-			const modifiers = node.modifiers ? [...node.modifiers] : [];
-			if (!modifiers.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
-				modifiers.unshift(ts.factory.createModifier(ts.SyntaxKind.ExportKeyword));
-			}
-
-			const declarationList = ts.factory.updateVariableDeclarationList(
-				node.declarationList,
-				declarations,
-			);
-
-			return ts.factory.updateVariableStatement(node, modifiers, declarationList);
 		}
 
 		return node;
 	}
+}
+
+export type ComptimeImport = {
+	readonly declaration: ts.ImportDeclaration;
+	readonly importPath: string;
+	readonly isExternal: boolean;
+	readonly comptimePath: string | undefined;
+	readonly comptimeSymbols: Map<string, ComptimeItem>;
+	readonly otherImports: string[];
 }

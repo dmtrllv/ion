@@ -4,7 +4,8 @@
 	"main": "dist/index.js",
 	"scripts": {
 		"build": "tsc",
-		"dev": "tsc -w"
+		"dev": "tsc -w",
+		"pack": "npm pack --pack-destination ../../tars"
 	},
 	"author": "Dimitri Lilov",
 	"type": "module",

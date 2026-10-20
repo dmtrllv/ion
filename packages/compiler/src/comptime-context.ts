@@ -13,7 +13,7 @@ const createLiteralExpression = (value: string | number | boolean): ts.Expressio
 	return value ? ts.factory.createTrue() : ts.factory.createFalse();
 };
 
-const toExpression = (value: unknown): ts.Expression => {
+export const toExpression = (value: unknown): ts.Expression => {
 	if (value !== null && typeof value === "object" && "kind" in value) {
 		const node = value as ts.Node;
 
@@ -26,13 +26,18 @@ const toExpression = (value: unknown): ts.Expression => {
 		return createLiteralExpression(value);
 	}
 
-	throw new Error(
-		"Unsupported call argument: expected a TypeScript expression or primitive literal",
-	);
+	const sourceFile = ts.createSourceFile("comptime-expr-wrapper", `(${(value as any).toString()});`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+
+	const statement = sourceFile.statements[0];
+
+	if (!statement || !ts.isExpressionStatement(statement) || !ts.isParenthesizedExpression(statement.expression)) {
+		throw new Error("Invalid expression");
+	}
+
+	return statement.expression.expression;
 };
 
-export const createContext = (callerNode?: ts.CallExpression): Comptime.Context => {
-	console.log("create context", callerNode);
+export const createContext = (callerNode: ts.CallExpression | undefined = undefined, functionReferences: any[] = []): Comptime.Context => {
 	return ({
 		reflect: {
 			type() {
@@ -56,6 +61,7 @@ export const createContext = (callerNode?: ts.CallExpression): Comptime.Context 
 				return createLiteralExpression(value) as Comptime.Expr<T>;
 			},
 			call: (target: (...args: any[]) => any, ...args: any[]) => {
+				functionReferences.push(target);
 				return ts.factory.createCallExpression(ts.factory.createIdentifier(target.name), undefined, args.map(toExpression)) as any;
 			}
 		},
@@ -69,25 +75,4 @@ export const createContext = (callerNode?: ts.CallExpression): Comptime.Context 
 			},
 		},
 	});
-}
-
-export class ComptimeCallResults {
-	public readonly results: Record<string, ComptimeCallResult> = {};
-
-	public reserveComptimeResult(packageName: string, node: ts.CallExpression): string {
-		const length = Object.keys(this.results).length;
-		const id = `${packageName}_${length}`;
-		this.results[id] = { node };
-		console.log("reserve", id);
-		return id;
-	}
-
-	public getResultFromNode(node: ts.CallExpression) {
-		return Object.values(this.results).find(r => r.node === node);
-	}
-}
-
-export type ComptimeCallResult = {
-	readonly node: ts.CallExpression;
-	result?: any;
 }

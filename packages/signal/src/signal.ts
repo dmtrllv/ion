@@ -77,3 +77,7 @@ export const signal = comptime(() => {
 		return ctx.syntax.call<Signal<T>, [string, T]>(createSignal, id, value);
 	});
 });
+
+export const test = comptime.fn(() => {
+
+});

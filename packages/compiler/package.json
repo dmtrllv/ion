@@ -5,13 +5,14 @@
 	"scripts": {
 		"build": "tsc",
 		"dev": "tsc -w",
-		"test": "cd test && node .."
+		"test": "cd test && node ..",
+		"pack": "npm pack --pack-destination ../../tars"
 	},
 	"author": "Dimitri Lilov",
 	"type": "module",
 	"license": "MIT",
 	"dependencies": {
-		"@ion/comptime": "file:../comptime",
+		"@ion/comptime": "0.0.1",
 		"typescript": "6.0.3"
 	},
 	"exports": {

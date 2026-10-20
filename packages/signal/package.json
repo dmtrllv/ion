@@ -3,13 +3,16 @@
 	"version": "0.0.1",
 	"main": "dist/index.js",
 	"scripts": {
-		"build": "ion build --lib"
+		"build": "ion build --lib",
+		"pack": "npm pack --pack-destination ../../tars"
 	},
 	"author": "Dimitri Lilov",
 	"type": "module",
 	"license": "MIT",
+	"dependencies": {
+		"@ion/compiler": "0.0.1"
+	},
 	"devDependencies": {
-		"@ion/compiler": "file:../compiler",
 		"ion": "file:../../tools/ion"
 	},
 	"exports": {

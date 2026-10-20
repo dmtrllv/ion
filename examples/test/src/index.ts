@@ -1,9 +1,15 @@
 
 import { effect, scope, ScopeEvent, signal } from "@ion/signal";
+import { randomQuote } from "./comptime-test.js";
+import { two } from "./two.js";
 
-export { signal } from "@ion/signal";
+//export { signal } from "@ion/signal";
+
+console.log(two);
 
 const app = scope(() => {
+	console.log(randomQuote);
+
 	const title = signal("todos");
 	const todos = signal([
 		"Wake up",

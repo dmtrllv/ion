@@ -2,18 +2,18 @@ import * as ts from "typescript";
 import { Reflect } from "./reflect.js";
 export { type Reflect, reflectContext } from "./reflect.js";
 
-export type Comptime = {
-	<T>(comptimeClosure: (ctx: Comptime.Context) => T): T;
+declare global {
+	const __IS_COMPTIME__: boolean;
+}
 
-	readonly fn: <R extends ComptimeValue, Args extends any[]>(val: (ctx: Comptime.Context, ...args: Args) => R) => (...args: Args) => R;
+export type Comptime = {
+	<T>(comptimeClosure: () => T): T;
+
+	readonly fn: <R extends ComptimeValue, Args extends any[]>(val: (...args: Args) => R) => (...args: Args) => R;
 	readonly macro: <R, Args extends any[]>(val: (ctx: Comptime.Context, ...args: MacroArgs<Args>) => Comptime.Expr<R>) => (...args: Args) => R;
 };
 
-//type ComptimeArgs<T extends any[]> = {
-//	[K in keyof T]: ComptimeArg<T[K]>;
-//};
-
-type ComptimeValue = any; 
+type ComptimeValue = any;
 
 type MacroArgs<T extends any[]> = {
 	[K in keyof T]: Comptime.Expr<T[K]>;
@@ -23,15 +23,10 @@ type CallArgs<Args extends any[]> = {
 	[K in keyof Args]: Args[K] | Comptime.Expr<Args[K]>;
 };
 
-declare global {
-	let __NEXT_COMPTIME_CONTEXT__: (id: string) => Comptime.Context & { setResult: (id: string, value: any) => void };
-}
-
-const comptimeWrapper = <T>(comptimeClosure: (ctx: Comptime.Context) => T, id: string): T => {
-	const context = __NEXT_COMPTIME_CONTEXT__(id);
-	const result = comptimeClosure(context);
-	context.setResult(id, result);
-	return result;
+const comptimeWrapper = <T>(comptimeClosure: () => T): T => {
+	if (!__IS_COMPTIME__)
+		throw new Error("Whoops comptime call is not removed");
+	return comptimeClosure();
 };
 
 const macro = <R, Args extends any[]>(val: (ctx: Comptime.Context, ...args: MacroArgs<Args>) => Comptime.Expr<R>): ((...args: Args) => R) => {
@@ -39,21 +34,16 @@ const macro = <R, Args extends any[]>(val: (ctx: Comptime.Context, ...args: Macr
 		console.log(new Error("macro must only be invoked by the compiler"));
 	}) as any;
 
-	wrapper["__ion_macro__"] = (ctx: Comptime.Context, args: any) => val(ctx, ...(args as MacroArgs<Args>));
+	wrapper["__COMPTIME_MACRO_FN__"] = val;
 
 	return wrapper;
 };
 
-const constfn = <R, Args extends any[]>(_val: (ctx: Comptime.Context, ...args: Args) => R): ((...args: Args) => R) => {
-	throw new Error("Not implemented");
-	//const wrapper = (() => {
-	//	console.log(new Error("constfn must only be invoked by the compiler"));
-	//}) as any;
-
-	//wrapper["__ion_const_fn__"] = (args: any) => val(createContext(), ...args);
-
-	//return wrapper;
-};
+const constfn = <R, Args extends any[]>(closure: (...args: Args) => R): ((...args: Args) => R) => {
+	if (!__IS_COMPTIME__)
+		throw new Error("Whoops const fn call is not removed");
+	return closure;
+}
 
 export const comptime: Comptime = Object.assign(comptimeWrapper, {
 	fn: constfn,

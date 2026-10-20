@@ -10,7 +10,5 @@
 			"node"
 		],
 		"esModuleInterop": true,
-		"declaration": true,
-		"declarationDir": "./types"
 	}
 }

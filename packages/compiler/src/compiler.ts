@@ -1,79 +1,59 @@
 import ts from "typescript";
-import { ComptimeManifest, Package } from "./package.js";
+import { Package } from "./package.js";
+import assert from "node:assert";
 import { Module } from "./module.js";
-import { writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { ComptimeSymbols, ComptimeType, resolveComptimeSymbols } from "./comptime.js";
 import { ComptimeModule } from "./comptime-module.js";
 import { Evaluator } from "./evaluator.js";
-import { ComptimeCallResults } from "./comptime-context.js";
 
 export class Compiler {
-	public readonly root: Package;
-	public readonly config: ts.ParsedCommandLine;
+	public readonly rootPackage: Package;
 	public readonly program: ts.Program;
 	public readonly modules: Map<string, Module> = new Map();
-	public readonly comptimeResults: ComptimeCallResults = new ComptimeCallResults();
+	public readonly comptimeSymbols: ComptimeSymbols;
+	public readonly evaluator = new Evaluator();
 
-	public constructor(root: Package) {
-		this.root = root;
-		this.config = root.tsconfig;
-		this.program = ts.createIncrementalProgram<ts.BuilderProgram>({
-			rootNames: this.config.fileNames,
-			options: this.config.options
-		}).getProgram();
-		this.modules = this.loadModules();
-	}
+	public get config() { return this.rootPackage.tsconfig; }
 
-	private loadModules(): Map<string, Module> {
-		const modules = new Map<string, Module>();
-		this.config.fileNames.forEach((path) => {
-			const source = this.program.getSourceFile(path);
+	public get typeChecker(): ts.TypeChecker { return this.program.getTypeChecker(); }
 
-			if (source === undefined) {
-				throw new Error(`Could not get source file for ${path}!`);
-			}
-
-			modules.set(path, new Module(this, path, source));
+	public constructor(root: string) {
+		this.rootPackage = Package.get(root);
+		this.program = ts.createProgram({
+			options: this.config.options,
+			rootNames: this.config.fileNames
 		});
-		modules.forEach(mod => mod.resolveExportAliases(this, modules));
-		return modules;
-	}
-
-	public getModule(path: string): Module {
-		if (!this.modules.has(path))
-			throw new Error(`Could not find module at ${path}!`);
-		return this.modules.get(path)!;
-	}
-
-	public createManifest() {
-		const manifest: ComptimeManifest = {};
-		for (const [path, mod] of this.modules) {
-			if (mod.hasComptimeExports) {
-				const relativePath = this.root.getRealtiveSourcePath(path);
-				manifest[relativePath] = {};
-				mod.comptimeExports.forEach(e => {
-					if (e.type)
-						manifest[relativePath]![e.name] = e.type;
-				});
-			}
-		}
-
-		writeFileSync(resolve(this.root.path, "comptime.manifest.json"), JSON.stringify(manifest, null, 2));
+		this.comptimeSymbols = resolveComptimeSymbols(this);
 	}
 
 	public async compile() {
-		const buildId = Date.now();
-		const comptimeModules = this.createComptimeModules(buildId);
-		const evaluationResults = await Evaluator.evaluate(buildId, this, comptimeModules);
-		//console.log(evaluationResults);
-		this.createManifest();
+		const modules = this.config.fileNames.map(fileName => {
+			const source = this.program.getSourceFile(fileName);
+			assert.ok(source, `Could not get source file for ${fileName}`);
+			const module = new Module(this, this.rootPackage, source!);
+			this.modules.set(fileName, module);
+			return module;
+		});
+		const comptimeModules = modules.map(mod => new ComptimeModule(this, mod));
+		await Promise.all(comptimeModules.map(mod => mod.load()))
+		this.evaluator.evaluate(this, comptimeModules);
+		await Promise.all(comptimeModules.map(c => c.getComptimeValue("two")));
 	}
 
-	private createComptimeModules(id: number) {
-		return Array.from(this.modules.values().map(module => {
-			const comptimeModule = new ComptimeModule(id, this, module, this.root.getComptimePath(module.path));
-			comptimeModule.compile();
-			return comptimeModule;
-		}));
+	public getComptimeTypeFromSymbol(symbol: ts.Symbol): ComptimeType | undefined {
+		if (symbol.flags & ts.SymbolFlags.Alias) {
+			symbol = this.typeChecker.getAliasedSymbol(symbol);
+		}
+
+		switch (symbol) {
+			case this.comptimeSymbols.comptime:
+				return "comptime";
+			case this.comptimeSymbols.fn:
+				return "comptime.fn";
+			case this.comptimeSymbols.macro:
+				return "comptime.macro";
+			default:
+				return undefined;
+		}
 	}
 }

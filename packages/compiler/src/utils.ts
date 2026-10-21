@@ -13,4 +13,4 @@ export function cached<T extends WeakKey, Args extends unknown[], R>(target: any
 	};
 };
 
-export const isNodeBuiltinModule = (name: string): boolean => builtinModules.includes(name);
+export const isNodeBuiltinModule = (name: string): boolean => builtinModules.includes(name.replace(/^node:/, ""));

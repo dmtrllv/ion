@@ -5,6 +5,8 @@
     },
     "global-scope.ts": {},
     "index.ts": {
+      "signal": "macro.decl",
+      "ScopeEvent": "value",
       "effect": "macro.decl",
       "memo": "macro.decl"
     },
@@ -12,7 +14,9 @@
       "memo": "macro.decl"
     },
     "reactive.ts": {},
-    "scope.ts": {},
+    "scope.ts": {
+      "ScopeEvent": "value"
+    },
     "signal.ts": {
       "signal": "macro.decl"
     },

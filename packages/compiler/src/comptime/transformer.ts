@@ -49,21 +49,18 @@ export class ComptimeTransformer {
 
 	private readonly transformer: ts.TransformerFactory<ts.SourceFile> = (_) => (sourceFile) => {
 		const statements: ts.Statement[] = [];
-		//const addedExports: Set<string> = new Set();
 		for (const stmt of sourceFile.statements) {
 			if (ts.isImportDeclaration(stmt)) {
 				const importStmt = this.transformImport(sourceFile, stmt);
 				if (importStmt)
 					statements.push(importStmt);
 			} else if (ts.isVariableStatement(stmt)) {
-				//const isExport = ts.canHaveModifiers(stmt) && stmt.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
 				const declList: ts.VariableDeclaration[] = [];
 				for (const decl of stmt.declarationList.declarations) {
 					const type = this.compiler.comptimeResolver.resolveVarDeclaration(decl);
 					if (type) {
-						//if (!isExport) {
-						//	addedExports.add(decl.name.getText())
-						//}
+						declList.push(decl);
+					} else if (decl.initializer && (ts.isFunctionDeclaration(decl.initializer) || ts.isArrowFunction(decl.initializer))) {
 						declList.push(decl);
 					}
 				}
@@ -71,6 +68,10 @@ export class ComptimeTransformer {
 					const modifiers = ts.factory.createModifier(ts.SyntaxKind.ExportKeyword);
 					const newDeclList = ts.factory.updateVariableDeclarationList(stmt.declarationList, declList);
 					statements.push(ts.factory.updateVariableStatement(stmt, [modifiers], newDeclList));
+				}
+			} else if (ts.isExpressionStatement(stmt)) {
+				if (this.compiler.comptimeResolver.resolveExpr(stmt.expression)) {
+					statements.push(stmt);
 				}
 			} else {
 				statements.push(stmt);

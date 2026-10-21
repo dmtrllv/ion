@@ -7,6 +7,7 @@ import { ComptimeType } from "./comptime/item.js";
 import { ComptimeResolver } from "./comptime/resolver.js";
 import { ComptimeTransformer } from "./comptime/transformer.js";
 import { createComptimeManifest } from "./comptime/manifest.js";
+import { ComptimeRuntime } from "./comptime/runtime.js";
 
 export class Compiler {
 	public readonly rootPackage: Package;
@@ -60,9 +61,15 @@ export class Compiler {
 	}
 
 	public async compile() {
-		await this.comptimeTransformer.transformProgram();
+		const { diagnostics, modules } = await this.comptimeTransformer.transformProgram();
+		if(diagnostics.length)
+			throw new AggregateError(diagnostics);
+
+		const comptimeRuntime = new ComptimeRuntime(this, modules);
+		await comptimeRuntime.load();
+
 		console.log(this.program.getRootFileNames())
-		await createComptimeManifest(this)
+		await createComptimeManifest(this);
 	}
 
 	public getAliasedSymbol(symbol: ts.Symbol) {

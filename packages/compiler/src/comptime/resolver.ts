@@ -3,6 +3,8 @@ import { Compiler } from "../compiler.js";
 import { ComptimeDeclaration, ComptimeExpression, ComptimeItem, ComptimeType } from "./item.js";
 import assert from "node:assert";
 
+let log = true;
+
 export class ComptimeResolver {
 	public readonly compiler: Compiler;
 
@@ -41,9 +43,9 @@ export class ComptimeResolver {
 	public resolveVarDeclaration(decl: ts.VariableDeclaration): ComptimeDeclaration | undefined {
 		if (!decl.initializer)
 			return undefined;
-
+		log = decl.getText().startsWith("ScopeEvent");
 		const comptimeExpr = this.resolveExpr(decl.initializer);
-		
+		log = false;
 		if (comptimeExpr) {
 			switch (comptimeExpr.type) {
 				case "fn.decl":
@@ -61,12 +63,11 @@ export class ComptimeResolver {
 		if (this.#declarations.has(symbol))
 			return this.#declarations.get(symbol);
 
+		if ((symbol.flags & ts.SymbolFlags.Alias) !== 0)
+			return this.resolveDeclaration(this.compiler.typeChecker.getAliasedSymbol(symbol));
+
 		const decl = symbol.valueDeclaration;
-
-		if (!decl)
-			return undefined;
-
-		if (this.#seen.has(decl))
+		if (!decl || this.#seen.has(decl))
 			return undefined;
 
 		if (ts.isVariableDeclaration(decl))
@@ -79,20 +80,31 @@ export class ComptimeResolver {
 		if (this.#expressions.has(expr))
 			return this.#expressions.get(expr);
 
-		if (this.#seen.has(expr))
+		if (this.#seen.has(expr)) {
+			if (log) console.log("seen!");
 			return undefined;
+		}
 
 		let type = this.resolveComptimeDeclType(expr);
-
-		if (ts.isAwaitExpression(expr))
-			return this.resolveExpr(expr.expression);
+		if (log) console.log("comptime decl type!", type);
 
 		if (type)
 			return this.addExpression(expr, type);
 
+		if (ts.isAwaitExpression(expr))
+			return this.resolveExpr(expr.expression);
+		//console.log("resolve expr", expr.getText())
 		// examine expression if eligable for comptime or not
 		//console.log("skipping epxr", expr.getText())
-		if (ts.isCallExpression(expr)) {
+
+		if (ts.isAsExpression(expr) || ts.isTypeAssertionExpression(expr) || ts.isSatisfiesExpression(expr)) {
+			if (log) console.log("check as expr!");
+			if (log) console.log("check as expr!", expr.expression.getText());
+			const result = this.resolveExpr(expr.expression);
+			if (log) console.log("as expr result:", result?.type);
+			return result ? this.addExpression(expr, result.type, result.dependencies) : undefined;
+		} else if (ts.isCallExpression(expr)) {
+			if (log) console.log("iscall!");
 			const comptimeCaller = this.resolveExpr(expr.expression);
 			if (comptimeCaller) {
 				switch (comptimeCaller.type) {
@@ -106,11 +118,49 @@ export class ComptimeResolver {
 				}
 			}
 		} else if (ts.isIdentifier(expr)) {
+			if (log) console.log("isIdentifier!");
 			let symbol = this.compiler.typeChecker.getSymbolAtLocation(expr);
 			assert.ok(symbol);
 			const comptimeDecl = this.resolveDeclaration(this.compiler.getAliasedSymbol(symbol));
 			if (comptimeDecl)
 				return this.addExpression(expr, comptimeDecl.type);
+		} else if (ts.isObjectLiteralExpression(expr)) {
+			if (log) console.log("isObjectLiteralExpression!");
+			let isComptime = true;
+			for (const prop of expr.properties) {
+				if (ts.isPropertyAssignment(prop)) {
+					if (!this.resolveExpr(prop.initializer))
+						isComptime = false;
+				} else if (ts.isShorthandPropertyAssignment(prop)) {
+					const symbol = this.compiler.typeChecker.getShorthandAssignmentValueSymbol(prop);
+					assert.ok(symbol);
+
+					const comptimeDecl = this.resolveDeclaration(symbol);
+					if (!comptimeDecl)
+						isComptime = false;
+				} else if (ts.isMethodDeclaration(prop)) {
+					// prop.body
+					console.log("TODO: inspect method declaration");
+				} else if (ts.isGetAccessorDeclaration(prop) || ts.isSetAccessorDeclaration(prop)) {
+					// prop.body
+					prop.body
+					console.log("TODO: inspect getters and setters");
+				}
+			}
+			if (isComptime)
+				return this.addExpression(expr, "value");
+		} else if (isPrimitive(expr)) {
+			return this.addExpression(expr, "value");
+		} else if (ts.isArrayLiteralExpression(expr)) {
+			let isComptime = true;
+			for (const item of expr.elements) {
+				if (!this.resolveExpr(item))
+					isComptime = false;
+			}
+			if (isComptime)
+				return this.addExpression(expr, "value");
+		} else {
+			if (log) console.log(expr.kind);
 		}
 
 		return undefined;
@@ -146,7 +196,7 @@ export class ComptimeResolver {
 				} else if (ts.isFunctionDeclaration(closure) && closure.body) {
 					return this.getComptimeReturnType(closure.body);
 				}
-				
+
 				console.log("invalid comptime closure?");
 				return undefined;
 			}
@@ -201,3 +251,12 @@ export class ComptimeResolver {
 	}
 }
 
+const isPrimitive = (expr: ts.Expression): boolean => {
+	return ts.isStringLiteral(expr)
+		|| ts.isNumericLiteral(expr)
+		|| ts.isBigIntLiteral(expr)
+		|| expr.kind === ts.SyntaxKind.TrueKeyword
+		|| expr.kind === ts.SyntaxKind.FalseKeyword
+		|| expr.kind === ts.SyntaxKind.NullKeyword
+		|| (ts.isIdentifier(expr) && expr.text === "undefined");
+};

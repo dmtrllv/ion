@@ -3,7 +3,7 @@
 	"version": "0.0.1",
 	"main": "dist/index.js",
 	"scripts": {
-		"build": "ion build --lib",
+		"build": "NODE_OPTIONS=\"--experimental-vm-modules\" ion build --lib",
 		"pack": "npm pack --pack-destination ../../tars"
 	},
 	"author": "Dimitri Lilov",

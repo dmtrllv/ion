@@ -1,0 +1,16 @@
+import { builtinModules } from "node:module";
+
+export function cached<T extends WeakKey, Args extends unknown[], R>(target: any, ..._args: any): any {
+	const cache: { value?: R } = {  };
+
+	return function (this: T, ...args: Args): R {
+		if ("value" in cache)
+			return cache.value;
+
+		const result = target.call(this, ...args);
+		cache.value = result;
+		return result;
+	};
+};
+
+export const isNodeBuiltinModule = (name: string): boolean => builtinModules.includes(name);

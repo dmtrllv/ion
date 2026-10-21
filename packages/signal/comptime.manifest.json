@@ -1,18 +1,21 @@
 {
-	"exports": {
-		"effect.ts": {
-			"effect": "comptime"
-		},
-		"index.ts": {
-			"signal": "comptime",
-			"effect": "comptime",
-			"memo": "comptime"
-		},
-		"memo.ts": {
-			"memo": "comptime"
-		},
-		"signal.ts": {
-			"signal": "comptime"
-		}
-	}
+  "exports": {
+    "effect.ts": {
+      "effect": "macro.decl"
+    },
+    "global-scope.ts": {},
+    "index.ts": {
+      "effect": "macro.decl",
+      "memo": "macro.decl"
+    },
+    "memo.ts": {
+      "memo": "macro.decl"
+    },
+    "reactive.ts": {},
+    "scope.ts": {},
+    "signal.ts": {
+      "signal": "macro.decl"
+    },
+    "slot.ts": {}
+  }
 }

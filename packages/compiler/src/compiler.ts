@@ -5,6 +5,8 @@ import ts, { Program } from "typescript";
 import { ComptimeSymbols, resolveComptimeSymbols } from "./comptime/symbols.js";
 import { ComptimeType } from "./comptime/item.js";
 import { ComptimeResolver } from "./comptime/resolver.js";
+import { ComptimeTransformer } from "./comptime/transformer.js";
+import { createComptimeManifest } from "./comptime/manifest.js";
 
 export class Compiler {
 	public readonly rootPackage: Package;
@@ -12,6 +14,7 @@ export class Compiler {
 	public readonly modules: Map<string, Module>;
 	public readonly comptimeSymbols: ComptimeSymbols | undefined;
 	public readonly comptimeResolver: ComptimeResolver;
+	public readonly comptimeTransformer: ComptimeTransformer;
 
 	public get config() {
 		assert.ok(this.rootPackage.tsConfig);
@@ -33,6 +36,7 @@ export class Compiler {
 		this.program = ts.createProgram({ options: this.config.options, rootNames: this.config.fileNames });
 		this.comptimeSymbols = resolveComptimeSymbols(this);
 		this.comptimeResolver = new ComptimeResolver(this);
+		this.comptimeTransformer = new ComptimeTransformer(this);
 		this.modules = this.initModules();
 	}
 
@@ -41,8 +45,9 @@ export class Compiler {
 		if (!this.usesComptime)
 			return modules;
 
-		this.program.getSourceFiles().forEach(sourceFile => {
-			const path = sourceFile.fileName;
+		this.program.getRootFileNames().forEach(path => {
+			const sourceFile = this.program.getSourceFile(path);
+			assert.ok(sourceFile);
 			modules.set(path, this.initModule(path, sourceFile));
 		});
 		return modules;
@@ -50,34 +55,15 @@ export class Compiler {
 
 	private initModule(path: string, sourceFile: ts.SourceFile) {
 		const pkg = Package.fromModulePath(path);
+		assert.ok(pkg);
 		return new Module(this, sourceFile, pkg, path)
 	}
 
-	//public getModule(path: string): Module {
-	//	const cached = this.modules.get(path);
-	//	if (cached)
-	//		return cached;
-	//	const sourceFile = this.program.getSourceFile(path);
-	//	assert.ok(sourceFile);
-	//	const mod = this.initModule(path, sourceFile);
-	//	this.modules.set(path, mod);
-	//	return mod;
-	//}
-
 	public async compile() {
-		//this.modules.forEach(module => module.generateComptimeSource(this))
+		await this.comptimeTransformer.transformProgram();
+		console.log(this.program.getRootFileNames())
+		await createComptimeManifest(this)
 	}
-
-	//public resolveModule(node: ts.ExportDeclaration | ts.ImportDeclaration, sourceFile: ts.SourceFile): Module | undefined {
-	//	if (!node.moduleSpecifier || !ts.isStringLiteral(node.moduleSpecifier))
-	//		return undefined;
-
-	//	const m = ts.resolveModuleName(node.moduleSpecifier.text, sourceFile.fileName, this.program.getCompilerOptions(), ts.sys).resolvedModule;
-	//	if (!m)
-	//		return undefined;
-
-	//	return this.modules.get(m.resolvedFileName);
-	//}
 
 	public getAliasedSymbol(symbol: ts.Symbol) {
 		if (symbol.flags & ts.SymbolFlags.Alias)
@@ -103,4 +89,9 @@ export class Compiler {
 
 		return undefined;
 	}
+
+	public isRootPackage(pkg: Package) {
+		return this.rootPackage === pkg;
+	}
 }
+

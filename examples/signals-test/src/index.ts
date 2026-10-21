@@ -10,7 +10,9 @@ export const randomQuote = await comptime(async () => {
 export const sum = comptime.fn((...args: number[]) => args.reduce((a, b) => a + b, 0));
 export const product = comptime.fn((...args: number[]) => args.reduce((a, b) => a * b, 1));
 
-const test = randomQuote;
+export const test = randomQuote;
+
+export default test;
 
 const a = sum(1, 2, 3, 4, 5);
 const b = product(1, 2, 3, 4, 5);

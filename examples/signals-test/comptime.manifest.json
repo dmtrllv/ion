@@ -1,0 +1,11 @@
+{
+  "exports": {
+    "index.ts": {
+      "randomQuote": "value",
+      "sum": "fn.decl",
+      "product": "fn.decl",
+      "test": "value",
+      "default": "value"
+    }
+  }
+}

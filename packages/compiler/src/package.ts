@@ -1,4 +1,4 @@
-import assert from "node:assert"
+import assert from "node:assert";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import ts from "typescript";
@@ -16,26 +16,32 @@ export class Package {
 		return this.#cache.get(path)!;
 	}
 
-	public static readonly fromModulePath = (path: string): Package => {
+	public static readonly fromModulePath = (path: string): Package | undefined => {
 		let current = dirname(realpathSync(path));
 		while (!existsSync(join(current, "package.json"))) {
 			const parent = dirname(current);
 			if (parent === current) {
-				throw new Error("Could not find package!");
+				return undefined;
 			}
 			current = parent;
 		}
 		return this.get(current);
 	}
 
-	public get name() { return this.json.name; }
-	public get version() { return this.json.version; }
-	public get isComptime() { return this.comptimeManifest !== null; }
-
 	public readonly path: string;
 	public readonly tsConfig: ts.ParsedCommandLine | null;
 	public readonly json: PackageJson;
 	public readonly comptimeManifest: ComptimeManifest | null;
+
+	public get name() { return this.json.name; }
+	public get version() { return this.json.version; }
+	public get isComptime() { return this.comptimeManifest !== null; }
+	public get sourcePath() { return this.tsConfig?.options.rootDir || this.path; }
+	public get outputPath() { return this.tsConfig?.options.outDir || this.path; }
+	
+	public get comptimePath() {
+		return resolve(this.path, this.json.ion?.comptime?.output ?? "comptime-output");
+	}
 
 	private constructor(path: string) {
 		assert.ok(isAbsolute(path), "provided package path must be absolute");
@@ -66,5 +72,20 @@ export class Package {
 		if (!existsSync(manifestPath))
 			return null;
 		return JSON.parse(readFileSync(manifestPath, "utf-8"));
+	}
+
+	public comptimePathFromOutputPath(path: string) {
+		return path.replace(this.outputPath, this.comptimePath);
+	}
+
+	public resolveSourcePathFromOutputPath(path: string): string {
+		path = path.replace(this.outputPath, this.sourcePath);
+		if(!existsSync(path))
+			path = path.replace(/\.js$/, ".ts");
+		if(!existsSync(path))
+			path = path.replace(/\.ts$/, ".tsx");
+		if(!existsSync(path))
+			throw new Error(`Could not resolve source path from output path ${path}!`);
+		return path;
 	}
 }

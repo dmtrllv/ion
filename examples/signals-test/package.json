@@ -1,5 +1,5 @@
 {
-	"name": "@ion/test-app",
+	"name": "@ion/signals-test-app",
 	"version": "0.0.1",
 	"main": "./dist/index.js",
 	"scripts": {

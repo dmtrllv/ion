@@ -10,17 +10,15 @@
 			"node"
 		],
 		"esModuleInterop": true,
-		"declaration": true,
-		"declarationDir": "./types",
 		"experimentalDecorators": true,
-		"strictFunctionTypes": true,
 		"strict": true
 	},
 	"include": [
-		"src/*"
+		"src/**/*"
 	],
 	"exclude": [
 		"node_modules",
-		"dist"
+		"dist",
+		"src copy"
 	]
 }

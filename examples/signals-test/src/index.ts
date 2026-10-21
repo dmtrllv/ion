@@ -1,13 +1,23 @@
 
+import { comptime } from "@ion/comptime";
 import { effect, scope, ScopeEvent, signal } from "@ion/signal";
-import { randomQuote } from "./comptime-test.js";
-import { two } from "./two.js";
 
-console.log(two);
+export const randomQuote = await comptime(async () => {
+	const json = await fetch("https://dummyjson.com/quotes/random").then(r => r.json());
+	return json.quote as string;
+});
+
+export const sum = comptime.fn((...args: number[]) => args.reduce((a, b) => a + b, 0));
+export const product = comptime.fn((...args: number[]) => args.reduce((a, b) => a * b, 1));
+
+const test = randomQuote;
+
+const a = sum(1, 2, 3, 4, 5);
+const b = product(1, 2, 3, 4, 5);
+
+console.log(a, b);
 
 const app = scope(() => {
-	console.log(randomQuote);
-
 	const title = signal("todos");
 	const todos = signal([
 		"Wake up",
@@ -66,3 +76,5 @@ app.onEvent(event => {
 		}
 	}
 });
+
+app.run();

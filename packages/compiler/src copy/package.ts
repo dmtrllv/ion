@@ -1,133 +1,126 @@
-//import { existsSync } from "node:fs";
-//import { readFile, realpath } from "node:fs/promises";
-//import { dirname, join, resolve } from "node:path";
+import ts from "typescript";
+import assert from "node:assert";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { node_modules } from "./env.js";
+import { cached } from "./utils.js";
+import { ComptimeManifest } from "./comptime.js";
 
-//export class Package {
-//	private static readonly cache = new Map<string, Promise<Package>>();
+export class Package {
+	static readonly #cache = new Map<string, Package>();
 
-//	private static resolveDependency = (root: string, name: string): string => {
-//		let current = resolve(root);
+	public static readonly get = (path: string) => {
+		assert.ok(isAbsolute(path), `Path ${path} provided to Package constructor must be an absolute path`);
+		if (!this.#cache.has(path))
+			this.#cache.set(path, new Package(path));
+		return this.#cache.get(path)!;
+	}
 
-//		while (true) {
-//			const path = join(current, "node_modules", name);
+	public static readonly getFromName = (name: string) => this.get(resolve(node_modules, name));
 
-//			if (existsSync(join(path, "package.json"))) {
-//				return path;
-//			}
+	public static readonly findFromSource = (path: string) => {
+		const isPackageRoot = (path: string) => {
+			const pkgPath = join(path, "package.json");
+			if (!existsSync(pkgPath))
+				return false;
+			const json = JSON.parse(readFileSync(pkgPath, "utf-8"));
+			return "name" in json;
+		};
 
-//			const parent = dirname(current);
+		let current = dirname(realpathSync(path));
+		while (!isPackageRoot(current)) {
+			const parent = dirname(current);
 
-//			if (parent === current) {
-//				throw new Error(
-//					`Could not resolve dependency "${name}" from "${root}"`
-//				);
-//			}
+			if (parent === current) {
+				throw new Error("Could not find package!");
+			}
 
-//			current = parent;
-//		}
-//	};
+			current = parent;
+		}
 
-//	public static readonly load = async (path: string): Promise<Package> => {
-//		const root = await realpath(resolve(path));
+		return this.get(current);
+	}
 
-//		let pending = this.cache.get(root);
+	public readonly path: string;
 
-//		if (!pending) {
-//			pending = readFile(join(root, "package.json"), "utf8").then(text => new Package(root, JSON.parse(text)))
+	public readonly json: PackageJson;
 
-//			this.cache.set(root, pending);
+	public readonly comptimeManifest?: ComptimeManifest;
 
-//			pending.catch(() => {
-//				if (this.cache.get(root) === pending) {
-//					this.cache.delete(root);
-//				}
-//			});
-//		}
+	@cached
+	public get name(): string {
+		return this.json.name;
+	}
 
-//		return pending;
-//	};
+	@cached
+	public get dependencies(): Record<string, string> {
+		return this.json.dependencies || {};
+	}
 
-//	public readonly root: string;
-//	public readonly json: PackageJson;
+	@cached
+	public get isComptime() {
+		return this.comptimeManifest !== undefined;
+	}
 
-//	private constructor(root: string, pkg: PackageJson) {
-//		this.root = root;
-//		this.json = pkg;
-//	}
+	@cached
+	public get comptimeOutput() {
+		return resolve(this.path, this.json?.ion?.comptime?.output || "comptime-build");
+	}
 
-//	public async resolveComptimePackages(packages = new Map<string, Package>(), visited = new Set<string>()): Promise<Map<string, Package>> {
-//		if (visited.has(this.root)) {
-//			return packages;
-//		}
+	@cached
+	public get sourceDir(): string {
+		return resolve(this.path, this.tsconfig.options.rootDir || ".");
+	}
 
-//		visited.add(this.root);
+	@cached
+	public get buildDir() {
+		return resolve(this.path, this.tsconfig.options.outDir || ".");
+	}
 
-//		if (this.usesComptime) {
-//			packages.set(this.root, this);
-//		}
+	private constructor(path: string) {
+		this.path = realpathSync(path);
+		const jsonPath = join(path, "package.json");
+		const json = JSON.parse(readFileSync(jsonPath, "utf-8"));
+		assert.ok(json.name, `Missing name in ${jsonPath}`);
+		this.json = json;
 
-//		const dependencies = {
-//			...this.json.dependencies,
-//			...this.json.optionalDependencies
-//		};
+		const manifestPath = join(this.path, "comptime.manifest.json");
+		if (existsSync(manifestPath))
+			this.comptimeManifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+	}
 
-//		await Promise.all(Object.entries(dependencies).map(async ([name, specifier]) => {
-//			let path: string;
+	@cached
+	public get tsconfig(): ts.ParsedCommandLine {
+		const configPath = resolve(this.path, "tsconfig.json");
+		const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
 
-//			if (specifier.startsWith("file:")) {
-//				path = resolve(this.root, specifier.slice("file:".length));
-//			} else {
-//				path = Package.resolveDependency(this.root, name);
-//			}
+		if (configFile.error) {
+			throw new Error(ts.flattenDiagnosticMessageText(configFile.error.messageText, "\n"));
+		}
 
-//			const pkg = await Package.load(path);
-//			await pkg.resolveComptimePackages(packages, visited);
-//		}));
+		const config = ts.parseJsonConfigFileContent(configFile.config, ts.sys, this.path, undefined, configPath);
 
-//		return packages;
-//	}
+		if (config.errors.length > 0) {
+			throw new Error(config.errors.map(error => ts.flattenDiagnosticMessageText(error.messageText, "\n")).join("\n"));
+		}
 
-//	public resolveComptimeConsumers(comptimePackageNames: string[], packages = new Set<ComptimeConsumerPackage>(), visited = new Set<string>()): Set<ComptimeConsumerPackage> {
-//		if (visited.has(this.root)) {
-//			return packages;
-//		}
+		return config;
+	}
 
-//		visited.add(this.root);
+	public getRelativeSourcePath(path: string) {
+		path = realpathSync(path);
+		return relative(this.sourceDir, path);
+	}
 
-//		const dependencies = {
-//			...this.json.dependencies,
-//			...this.json.optionalDependencies
-//		};
+}
 
-//		const comptimePackages = Object.keys(dependencies).filter(depName => comptimePackageNames.includes(depName))
-
-//		if (comptimePackageNames.length > 0) {
-//			packages.add({ consumer: this, comptimePackages });
-//		}
-
-//		return packages;
-//	}
-
-//	public get usesComptime(): boolean {
-//		return this.json.ion?.comptime === true;
-//	}
-//}
-
-//export type PackageJson = {
-//	name?: string;
-//	version?: string;
-//	dependencies?: Record<string, string>;
-//	devDependencies?: Record<string, string>;
-//	optionalDependencies?: Record<string, string>;
-//	peerDependencies?: Record<string, string>;
-//	ion?: IonPackageConfig;
-//};
-
-//export type IonPackageConfig = {
-//	comptime?: boolean;
-//};
-
-//export type ComptimeConsumerPackage = {
-//	consumer: Package;
-//	comptimePackages: string[];
-//};
+export type PackageJson = {
+	name: string;
+	version?: string;
+	dependencies?: Record<string, string>;
+	ion?: {
+		comptime?: {
+			output?: string;
+		}
+	}
+}

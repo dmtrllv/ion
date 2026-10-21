@@ -6,6 +6,7 @@
 		"packages/*",
 		"tools/*",
 		"examples/test",
+		"examples/signals-test",
 		"examples/config"
 	],
 	"devDependencies": {

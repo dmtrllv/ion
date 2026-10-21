@@ -1,81 +1,59 @@
-import { resolve, sep } from "node:path";
-import * as ts from "typescript";
-import { Pass } from "./passes/pass.js";
-import { RefError } from "./passes/writer.js";
+import ts from "typescript";
+import { Package } from "./package.js";
+import assert from "node:assert";
+import { Module } from "./module.js";
+import { ComptimeSymbols, ComptimeType, resolveComptimeSymbols } from "./comptime.js";
+import { ComptimeModule } from "./comptime-module.js";
+import { Evaluator } from "./evaluator.js";
 
 export class Compiler {
-	public static run = async <T>(root: string, callback: (compiler: Compiler) => T): Promise<Awaited<T>> => {
-		const configPath = resolve(root, "tsconfig.json");
-		const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+	public readonly rootPackage: Package;
+	public readonly program: ts.Program;
+	public readonly modules: Map<string, Module> = new Map();
+	public readonly comptimeSymbols: ComptimeSymbols;
+	public readonly evaluator = new Evaluator();
 
-		if (configFile.error) {
-			throw new Error(ts.flattenDiagnosticMessageText(configFile.error.messageText, "\n"));
-		}
+	public get config() { return this.rootPackage.tsconfig; }
 
-		const config = ts.parseJsonConfigFileContent(configFile.config, ts.sys, root, undefined, configPath);
+	public get typeChecker(): ts.TypeChecker { return this.program.getTypeChecker(); }
 
-		if (config.errors.length > 0) {
-			throw new Error(config.errors.map(error => ts.flattenDiagnosticMessageText(error.messageText, "\n")).join("\n"));
-		}
-
-		const compiler = new Compiler(root, config);
-
-		try {
-			return await callback(compiler);
-		} catch(e) {
-			if(e instanceof RefError) {
-				console.log(e.message);
-				process.exit(0);
-			}
-			throw e;
-		}
-	};
-
-	public readonly sourceRoot: string;
-	public readonly root: string;
-
-	readonly #config: ts.ParsedCommandLine;
-	readonly #program: ts.Program;
-
-	public get typeChecker() {
-		return this.#program.getTypeChecker();
-	}
-
-	public get options() {
-		return this.#program.getCompilerOptions();
-	}
-
-	public get program(): ts.Program {
-		return this.#program;
-	}
-
-	private constructor(root: string, config: ts.ParsedCommandLine) {
-		this.root = root;
-		this.sourceRoot = config.options.rootDir ?? root;
-		this.#config = config;
-		this.#program = ts.createProgram({
-			rootNames: config.fileNames,
-			options: config.options
+	public constructor(root: string) {
+		this.rootPackage = Package.get(root);
+		this.program = ts.createProgram({
+			options: this.config.options,
+			rootNames: this.config.fileNames
 		});
+		this.comptimeSymbols = resolveComptimeSymbols(this);
 	}
 
-	public async run<T, Inputs extends any[] = []>(pass: new () => Pass<T, Inputs>, ...inputs: Inputs): Promise<T> {
-		return new pass().run(this, ...inputs);
+	public async compile() {
+		const modules = this.config.fileNames.map(fileName => {
+			const source = this.program.getSourceFile(fileName);
+			assert.ok(source, `Could not get source file for ${fileName}`);
+			const module = new Module(this, this.rootPackage, source!);
+			this.modules.set(fileName, module);
+			return module;
+		});
+		const comptimeModules = modules.map(mod => new ComptimeModule(this, mod));
+		await Promise.all(comptimeModules.map(mod => mod.load()))
+		this.evaluator.evaluate(this, comptimeModules);
+		await Promise.all(comptimeModules.map(c => c.getComptimeValue("two")));
 	}
 
-	public readonly relativePath = (path: string) => path.replace(this.sourceRoot + sep, "");
-
-	public get sourcePaths(): string[] {
-		return this.#config.fileNames;
-	}
-
-	public getSource(path: string) {
-		const source = this.#program.getSourceFile(path);
-
-		if (source === undefined) {
-			throw new Error(`Could not get source file for ${path}!`);
+	public getComptimeTypeFromSymbol(symbol: ts.Symbol): ComptimeType | undefined {
+		if (symbol.flags & ts.SymbolFlags.Alias) {
+			symbol = this.typeChecker.getAliasedSymbol(symbol);
 		}
 
-		return source;
+		switch (symbol) {
+			case this.comptimeSymbols.comptime:
+				return "comptime";
+			case this.comptimeSymbols.fn:
+				return "comptime.fn";
+			case this.comptimeSymbols.macro:
+				return "comptime.macro";
+			default:
+				return undefined;
+		}
 	}
 }

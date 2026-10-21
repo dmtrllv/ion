@@ -1,231 +1,78 @@
-
-import * as ts from "typescript";
+import ts from "typescript";
+import { Package } from "./package.js";
+import { ComptimeItem } from "./comptime.js";
+import { Compiler } from "./compiler.js";
+import assert from "node:assert";
+import { cached } from "./utils.js";
 
 export class Module {
 	public readonly path: string;
+	public readonly package: Package;
 	public readonly sourceFile: ts.SourceFile;
-	public readonly usesComptime: boolean;
-	public readonly macroDeclarations: MacroDeclaration[];
-	public readonly removeStatements: ts.Node[];
-	public readonly imports: Import[];
-	public readonly exports: Export[];
-	public readonly reExports: ReExport[];
-	public readonly typeChecker: ts.TypeChecker;
+	public readonly comptimeDeclarations: Map<string, ComptimeItem>;
 
-	public constructor(typeChecker: ts.TypeChecker, relativePath: string, sourceFile: ts.SourceFile, removeStatements: ts.Node[], macroDeclarations: MacroDeclaration[], compilerOptions: ts.CompilerOptions) {
-		this.typeChecker = typeChecker;
-		this.path = relativePath;
-		this.sourceFile = sourceFile;
-		this.usesComptime = macroDeclarations.length !== 0;
-		this.macroDeclarations = macroDeclarations;
-		this.removeStatements = removeStatements;
-		this.imports = this.resolveImports(typeChecker, compilerOptions);
-		this.exports = this.resolveExports(typeChecker);
-		this.reExports = this.resolveReExports();
+	@cached
+	public get comptimePath(): string {
+		return this.path.replace(this.package.sourceDir, this.package.comptimeOutput).replace(/\.tsx?$/, ".js");
 	}
 
-	private resolveImports(typeChecker: ts.TypeChecker, compilerOptions: ts.CompilerOptions,): Import[] {
-		const imports: Import[] = [];
+	@cached
+	public get buildPath(): string {
+		return this.path.replace(this.package.sourceDir, this.package.buildDir).replace(/\.ts$/, ".js");
+	}
 
-		for (const node of this.sourceFile.statements) {
-			if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier)) {
-				continue;
-			}
+	public constructor(compiler: Compiler, pkg: Package, sourceFile: ts.SourceFile) {
+		this.path = sourceFile.fileName;
+		this.package = pkg;
+		this.sourceFile = sourceFile;
+		this.comptimeDeclarations = this.resolveComptimeItems(compiler);
+	}
 
-			const clause = node.importClause;
-			const symbols: Record<string, ts.Symbol> = {};
+	public resolveComptimeItems(compiler: Compiler) {
+		const copmtimeItems = new Map<string, ComptimeItem>();
+		this.sourceFile.statements.forEach(statement => {
+			if (ts.isVariableStatement(statement)) {
+				const decl = statement.declarationList.declarations[0];
+				if (!decl || !ts.isIdentifier(decl.name) || !decl.initializer)
+					return;
 
-			if (clause) {
-				if (clause.name) {
-					const symbol = typeChecker.getSymbolAtLocation(clause.name);
-					if (symbol)
-						symbols["default"] = symbol;
-				}
+				const name = decl.name.text;
+				const declSymbol = compiler.typeChecker.getSymbolAtLocation(decl.name);
+				assert.ok(declSymbol, "Could not get declaration symbol!");
 
-				const bindings = clause.namedBindings;
-
-				if (bindings && ts.isNamespaceImport(bindings)) {
-					const symbol = typeChecker.getSymbolAtLocation(bindings.name);
-					if (symbol)
-						symbols["*"] = symbol;
-				} else if (bindings && ts.isNamedImports(bindings)) {
-					for (const element of bindings.elements) {
-						const symbol = typeChecker.getSymbolAtLocation(element.name);
-						if (symbol) {
-							symbols[element.propertyName?.text ?? element.name.text] = symbol;
+				const parse = (node: ts.Node) => {
+					if (ts.isCallExpression(node)) {
+						if (ts.isPropertyAccessExpression(node.expression)) {
+							const access = node.expression;
+							const objectSymbol = compiler.typeChecker.getSymbolAtLocation(access.expression);
+							assert.ok(objectSymbol, `Could not get symbol...`);
+							if (compiler.getComptimeTypeFromSymbol(objectSymbol) === "comptime") {
+								const propertySymbol = compiler.typeChecker.getSymbolAtLocation(access.name);
+								assert.ok(propertySymbol, `Could not get symbol...`);
+								if (propertySymbol.name === "fn") {
+									copmtimeItems.set(name, { name, type: "comptime.fn.decl", symbol: declSymbol, comptimeModulePath: this.comptimePath, isExternal: false });
+								} else if (propertySymbol.name === "macro") {
+									copmtimeItems.set(name, { name, type: "comptime.macro", symbol: declSymbol, comptimeModulePath: this.comptimePath, isExternal: false });
+								}
+							}
+						} else if (ts.isIdentifier(node.expression)) {
+							const s = compiler.typeChecker.getSymbolAtLocation(node.expression);
+							assert.ok(s, `Could not get symbol...`);
+							const type = compiler.getComptimeTypeFromSymbol(s!);
+							if (type === "comptime") {
+								copmtimeItems.set(name, { name, type: "comptime", symbol: declSymbol, comptimeModulePath: this.comptimePath, isExternal: false });
+							}
 						}
 					}
 				}
-			}
 
-			const result = ts.resolveModuleName(
-				node.moduleSpecifier.text,
-				this.sourceFile.fileName,
-				compilerOptions,
-				ts.sys,
-			);
-
-			const absolutePath = result.resolvedModule?.resolvedFileName;
-
-			if (!absolutePath) {
-				throw new Error(
-					`Could not resolve import "${node.moduleSpecifier.text}" in ${this.sourceFile.fileName}`,
-				);
-			}
-
-			imports.push({
-				absolutePath,
-				path: node.moduleSpecifier.text,
-				node,
-				symbols,
-			});
-		}
-
-		return imports;
-	}
-
-	private resolveExports(typeChecker: ts.TypeChecker): Export[] {
-		const moduleSymbol = typeChecker.getSymbolAtLocation(this.sourceFile);
-
-		if (!moduleSymbol) 
-			return [];
-
-		return typeChecker.getExportsOfModule(moduleSymbol).map((symbol) => ({
-			name: symbol.name,
-			symbol,
-			target: this.resolveAlias(typeChecker, symbol),
-		}));
-	}
-
-	private resolveAlias(typeChecker: ts.TypeChecker, symbol: ts.Symbol,): ts.Symbol {
-		if ((symbol.flags & ts.SymbolFlags.Alias) === 0) {
-			return symbol;
-		}
-
-		return typeChecker.getAliasedSymbol(symbol);
-	}
-
-	private resolveReExports(): ReExport[] {
-		const reExports: ReExport[] = [];
-
-		for (const node of this.sourceFile.statements) {
-			if (!ts.isExportDeclaration(node) || !node.moduleSpecifier || !ts.isStringLiteral(node.moduleSpecifier)) {
-				continue;
-			}
-
-			const clause = node.exportClause;
-
-			if (!clause) {
-				reExports.push({
-					path: node.moduleSpecifier.text,
-					node,
-					kind: "all",
-				});
-				continue;
-			}
-
-			if (ts.isNamespaceExport(clause)) {
-				reExports.push({
-					path: node.moduleSpecifier.text,
-					node,
-					kind: "namespace",
-					exportedName: clause.name.text,
-				});
-				continue;
-			}
-
-			for (const element of clause.elements) {
-				reExports.push({
-					path: node.moduleSpecifier.text,
-					node,
-					kind: "named",
-					exportedName: element.name.text,
-					importedName: element.propertyName?.text ?? element.name.text,
-				});
-			}
-		}
-
-		return reExports;
-	}
-
-	public get fullPath(): string {
-		return this.sourceFile.fileName;
-	}
-
-	public getComptimeDeclaration(target: ts.Symbol): MacroDeclaration | undefined {
-		return this.macroDeclarations.find(declaration => {
-			const symbol = this.typeChecker.getSymbolAtLocation(declaration.statement.name);
-
-			return symbol === target;
-		});
-	}
-
-	public getExport(name: string): Export | undefined {
-		return this.exports.find(exported => exported.name === name);
-	}
-
-	public getComptimeImport(importedName: string): MacroDeclaration | undefined {
-		const exported = this.getExport(importedName);
-
-		if (!exported?.targetModule) {
-			return undefined;
-		}
-
-		return exported.targetModule.getComptimeDeclaration(exported.target);
-	}
-
-	public getComptimeDeclarationForSymbol(target: ts.Symbol,): MacroDeclaration | undefined {
-		const declaration = this.getComptimeDeclaration(target);
-
-		if (declaration) {
-			return declaration;
-		}
-
-		for (const exported of this.exports) {
-			if (exported.target === target && exported.targetModule) {
-				const resolved = exported.targetModule.getComptimeDeclaration(target);
-
-				if (resolved) {
-					return resolved;
+				if (ts.isAwaitExpression(decl.initializer)) {
+					parse(decl.initializer.expression)
+				} else {
+					parse(decl.initializer);
 				}
 			}
-		}
-
-		return undefined;
+		});
+		return copmtimeItems;
 	}
 }
-
-export type MacroDeclaration = {
-	readonly type: MacroType;
-	readonly statement: ts.VariableDeclaration;
-};
-
-export type MacroType =
-	| "comptime"
-	| "comptime.fn"
-	| "macro.generate"
-	| "macro.attribute";
-
-export type Import = {
-	absolutePath: string;
-	path: string;
-	node: ts.ImportDeclaration;
-	symbols: Record<string, ts.Symbol>;
-	module?: Module | undefined;
-};
-
-export type Export = {
-	readonly name: string;
-	readonly symbol: ts.Symbol;
-	readonly target: ts.Symbol;
-	targetModule?: Module | undefined;
-};
-
-export type ReExport = {
-	readonly path: string;
-	readonly node: ts.ExportDeclaration;
-	readonly kind: "all" | "namespace" | "named";
-	readonly exportedName?: string;
-	readonly importedName?: string;
-	module?: Module | undefined;
-};

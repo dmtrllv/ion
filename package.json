@@ -3,8 +3,13 @@
 	"author": "Dimitri Lilov",
 	"license": "MIT",
 	"workspaces": [
-		"compiler"
+		"compiler",
+		"test"
 	],
+	"scripts": {
+		"watch": "npm run watch --workspaces --if-present",
+		"reset": "rm -rf node_modules && npm i"
+	},
 	"devDependencies": {
 		"@tsconfig/strictest": "^2.0.8",
 		"@types/node": "^26.6.5",

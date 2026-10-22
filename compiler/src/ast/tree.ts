@@ -1,30 +1,53 @@
-import ts from "typescript";
 import { Ast } from "./ast.js";
 import { Unknown } from "./unknown.js";
 import { Module } from "./module.js";
 import { Compiler } from "../compiler.js";
+import { Node, NodeArray } from "typescript/ast";
+import assert from "node:assert";
+import { Variable, VariableStatement } from "./var.js";
+import { Function } from "./function.js";
+import { Class } from "./class.js";
 
 export class AstTree {
-	private readonly cache = new WeakMap<ts.Node, Ast>();
-	private readonly compiler: Compiler;
+	readonly #cache = new WeakMap<Node, Ast>();
+	readonly #compiler: Compiler;
 
 	public constructor(compiler: Compiler) {
-		this.compiler = compiler;
+		this.#compiler = compiler;
 	}
 
-	public resolve<T extends Ast>(node: ts.Node): T {
-		const cached = this.cache.get(node);
+	public readonly resolveArray = <T extends Ast<any> = Ast<any>>(nodes: Node[] | NodeArray<Node>): T[] => nodes.map(n => this.resolve(n));
+
+	public readonly resolve = <T extends Ast<any> = Ast<any>>(node: Node): T => {
+		const cached = this.#cache.get(node);
 		if (cached)
 			return cached as T;
 
-		const result = this.parseNode(node);
-		this.cache.set(node, result);
+		const result = this.#parseNode(node);
+		this.#cache.set(node, result);
 		return result as T;
 	}
 
-	private parseNode(node: ts.Node): Ast {
-		if (ts.isSourceFile(node)) return new Module(this.compiler, node);
+	public readonly resolveModule = async (path: string): Promise<Module> => {
+		const source = await this.#compiler.program.getSourceFile(path);
+		assert.ok(source);
+		return this.resolve(source) as Module;
+	}
 
-		return new Unknown(this.compiler, node);
+	readonly #parseNode = (node: Node): Ast => {
+		for (const type of AstTypes) {
+			const ast = type.tryParse(this.#compiler, node);
+			if (ast)
+				return ast;
+		}
+		return new Unknown(this.#compiler, node);
 	}
 }
+
+const AstTypes = [
+	Module,
+	VariableStatement,
+	Function,
+	Variable,
+	Class,
+]

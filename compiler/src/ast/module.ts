@@ -1,20 +1,22 @@
-import ts from "typescript";
+import { isSourceFile, SourceFile } from "typescript/ast";
 import { Ast } from "./ast.js";
 import { cached } from "../utils.js";
-import { Package } from "../package.js";
+import { Statement } from "./statement.js";
 
-export class Module extends Ast<ts.SourceFile> {
+@Ast.register(isSourceFile)
+export class Module extends Ast<SourceFile> {
+	@cached
+	public get path(): string {
+		return this.node.fileName;
+	}
+
 	@cached
 	public get package() {
-		return Package.fromModulePath(this.node.fileName);
+		return this.compiler.resolvePackageFromModule(this)
 	}
 
 	@cached
-	public get imports() {
-		
+	public get statements(): Statement[] {
+		return this.compiler.ast.resolveArray(this.node.statements)
 	}
-
-	//public constructor(node: ts.SourceFile) {
-	//	super(node);
-	//}
 }

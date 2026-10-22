@@ -1,6 +1,6 @@
-import ts from "typescript";
+import { Node } from "typescript/ast";
 import { Ast } from "./ast.js";
 
-export class Unknown extends Ast<ts.Node> {
+export class Unknown extends Ast<Node> {
 	
 }

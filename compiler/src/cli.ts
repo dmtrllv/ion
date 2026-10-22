@@ -1,3 +1,7 @@
 #! /usr/bin/env node
 
-console.log(process.argv)
+import { Compiler } from "./compiler.js";
+
+await using compiler = await Compiler.load(process.cwd());
+
+await compiler.compile();

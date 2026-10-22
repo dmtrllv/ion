@@ -1,4 +1,0 @@
-{
-	"error": "This config is missing a name and version field",
-	"message": "Since the function is run at compile time, it wont build"
-}

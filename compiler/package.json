@@ -1,0 +1,28 @@
+{
+	"name": "@ion/compiler",
+	"version": "0.0.1",
+	"main": "dist/index.js",
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsc -w",
+		"test": "cd test && node ..",
+		"pack": "npm pack --pack-destination ../../tars"
+	},
+	"author": "Dimitri Lilov",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": {
+			"default": "./dist/index.js",
+			"import": "./dist/index.js",
+			"types": "./types/index.d.js"
+		}
+	},
+	"devDependencies": {
+		"@types/node": "^26.6.5",
+		"typescript": "^7.1.0-beta"
+	},
+	"bin": {
+		"ion": "./dist/cli.js"
+	}
+}

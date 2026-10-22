@@ -1,11 +1,15 @@
 import { dirname, join, resolve } from "node:path";
-import { API, ParsedCommandLine, Program } from "typescript/async";
+import { API, Checker, ParsedCommandLine, Program } from "typescript/async";
 import { asyncDisposable } from "./disposable.js";
 import { AstTree } from "./ast/tree.js";
 import { Package } from "./package.js";
 import { Module } from "./ast/module.js";
 import { existsSync } from "node:fs";
 import { VariableStatement } from "./ast/var.js";
+import { Class } from "./ast/class.js";
+import { Function } from "./ast/function.js";
+import { resolveComptimeSymbols } from "./copmtime/symbols.js";
+import { cached, resolveNodeModules } from "./utils.js";
 
 export class Compiler {
 	public static readonly load = async (root: string) => {
@@ -13,23 +17,38 @@ export class Compiler {
 		const pkg = await Package.load(api, root);
 		const config = await api.parseConfigFile(resolve(root, "tsconfig.json"));
 		const program = await api.createProgram(config.fileNames, config.options, {});
-		return asyncDisposable(new Compiler(api, pkg, config, program));
+		const nodeModulesPath = resolveNodeModules(root);
+		if (!nodeModulesPath) {
+			console.log(`Could not resolve nodeModulesPath at ${root}!`);
+			await api[Symbol.asyncDispose]();
+			return undefined;
+		}
+		return asyncDisposable(new Compiler(api, pkg, config, program, nodeModulesPath));
 	}
 
 	public readonly root: Package;
 	public readonly config: ParsedCommandLine;
 	public readonly api: API<false>;
-	public readonly program: Program<import("typescript/async").ProjectId>;
+	public readonly program: Program;
+	public readonly checker: Checker;
 	public readonly ast: AstTree;
+	public readonly nodeModulesPath: string;
 	public readonly packages: Map<string, Promise<Package>>;
 
-	private constructor(api: API, rootPackage: Package, config: ParsedCommandLine, program: Program) {
+	@cached
+	public getComptimeSymbols() {
+		return resolveComptimeSymbols(this);
+	}
+
+	private constructor(api: API, rootPackage: Package, config: ParsedCommandLine, program: Program, nodeModulesPath: string) {
 		this.api = api;
 		this.root = rootPackage;
 		this.config = config;
 		this.program = program;
+		this.checker = program.getProject().checker;
 		this.ast = new AstTree(this);
 		this.packages = new Map<string, Promise<Package>>();
+		this.nodeModulesPath = nodeModulesPath;
 		this.packages.set(rootPackage.path, Promise.resolve(rootPackage));
 	}
 
@@ -57,12 +76,13 @@ export class Compiler {
 		for (const path of this.root.sourceFilePaths) {
 			const module = await this.ast.resolveModule(path);
 			console.log(module.path);
-			for(const stmt of module.statements) {
-				if(stmt.is(VariableStatement)) {
+			for (const stmt of module.statements) {
+				if (stmt.is(VariableStatement)) {
 					console.log(stmt.variables.map(v => v.name))
+				} else if (stmt.is(Class) || stmt.is(Function)) {
+					console.log(stmt.constructor.name, stmt.name);
 				}
 			}
-			console.log();
 		}
 	}
 }

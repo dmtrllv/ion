@@ -7,4 +7,4 @@ export type Statement =
 	| Variable
 	| Function
 	| Class
-	| Expression;
+	| Expression<any>;

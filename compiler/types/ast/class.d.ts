@@ -1,4 +1,6 @@
 import { ClassDeclaration, ClassExpression } from "typescript/ast";
-import { Ast } from "./ast.js";
-export declare class Class extends Ast<ClassDeclaration | ClassExpression> {
+import { EvaluationType, Expression } from "./expression.js";
+export declare class Class extends Expression<ClassDeclaration | ClassExpression> {
+    get evaluationType(): EvaluationType;
+    get name(): string | undefined;
 }

@@ -13,6 +13,10 @@
 		"experimentalDecorators": true,
 		"strict": true,
 		"declaration": true,
-		"declarationDir": "./types"
-	}
+		"declarationDir": "./types",
+		"stripInternal": true,
+	},
+	"include": [
+		"./src/**/*"
+	]
 }

@@ -44,12 +44,12 @@ export class Function extends Ast<ts.FunctionDeclaration | ts.FunctionExpression
 	}
 
 	@cached
-	public get statments(): Promise<Statement[]> {
+	public get statments(): Statement[] {
 		if (ts.isFunctionDeclaration(this.node) || ts.isFunctionExpression(this.node))
 			return this.compiler.ast.resolveArray(this.node.body?.statements || []);
 		else if (ts.isBlock(this.node.body))
 			return this.compiler.ast.resolveArray(this.node.body.statements)
-		return this.compiler.ast.resolve<Statement>(this.node.body).then(r => [r]);
+		return [this.compiler.ast.resolve<Statement>(this.node.body)];
 	}
 
 	@cached

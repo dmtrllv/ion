@@ -2,8 +2,13 @@
 
 import { Compiler } from "./compiler.js";
 
-await using compiler = await Compiler.load(process.cwd());
+using compiler = Compiler.load(process.cwd());
 
 if (compiler) {
-	await compiler.compile();
+	try {
+		compiler.compile();
+	} catch (error) {
+		console.dir(error, { depth: null });
+		throw error;
+	}
 }

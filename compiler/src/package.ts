@@ -3,27 +3,27 @@ import { isAbsolute, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { loadPackageJson, PackageJson } from "./package-json.js";
 import { ComptimeManifest } from "./manifest.js";
-import { API, formatDiagnosticsWithColorAndContext, ParsedCommandLine } from "typescript/async";
+import { API, formatDiagnosticsWithColorAndContext, ParsedCommandLine } from "typescript/sync";
 
 export class Package {
-	public static async load(api: API<false>, path: string) {
+	public static load(api: API<false>, path: string) {
 		assert.ok(isAbsolute(path), `Path ${path} provided to Package constructor must be an absolute path`);
-		const config = await Package.#loadTsConfig(api, path);
+		const config = Package.#loadTsConfig(api, path);
 		return new Package(path, config);
 	}
 
-	static async #loadTsConfig(api: API, root: string) {
+	static #loadTsConfig(api: API, root: string) {
 		const configPath = resolve(root, "tsconfig.json");
 		if (!existsSync(configPath))
 			return undefined;
 
-		const configFile = await api.readConfigFile(configPath);
+		const configFile = api.readConfigFile(configPath);
 		if (configFile.error) {
 			console.log(formatDiagnosticsWithColorAndContext([configFile.error], api));
 			return undefined;
 		}
 
-		const config = await api.parseJsonConfigFileContent(configFile.config, { configDirectory: root });
+		const config = api.parseJsonConfigFileContent(configFile.config, { configDirectory: root });
 		if (config.errors.length > 0) {
 			console.log(formatDiagnosticsWithColorAndContext(config.errors, api));
 			return undefined;
@@ -42,6 +42,7 @@ export class Package {
 	public get isComptime() { return this.comptimeManifest !== undefined; }
 	public get sourcePath() { return this.tsConfig?.options.rootDir || this.path; }
 	public get outputPath() { return this.tsConfig?.options.outDir || this.path; }
+	public get typeDeclarationPath() { return this.tsConfig?.options.declarationDir || this.outputPath; }
 
 	public get comptimePath() {
 		return resolve(this.path, this.json.ion?.comptime?.output ?? "comptime-output");

@@ -1,12 +1,12 @@
-export const asyncDisposable = <T extends {}>(obj: T): AsyncDisposable<T> => {
+export const disposable = <T extends {}>(obj: T): AsyncDisposable<T> => {
 	let isDisposed = false;
 
-	const disposer = async () => {
+	const disposer = () => {
 		isDisposed = true;
-		return Promise.all(Object.values(obj).map((val: any) => {
-			if(val && typeof val === "object" && Symbol.asyncDispose in val)
-				return val[Symbol.asyncDispose]()
-		}));
+		Object.values(obj).map((val: any) => {
+			if (val && typeof val === "object" && Symbol.dispose in val)
+				return val[Symbol.dispose]()
+		});
 	};
 
 	return new Proxy(obj, {
@@ -14,7 +14,7 @@ export const asyncDisposable = <T extends {}>(obj: T): AsyncDisposable<T> => {
 			if (isDisposed)
 				throw new Error(`disposable ${obj.constructor.name} is already disposed!`);
 
-			if (p === Symbol.asyncDispose)
+			if (p === Symbol.dispose)
 				return disposer;
 
 			return target[p as keyof typeof target];
@@ -23,5 +23,5 @@ export const asyncDisposable = <T extends {}>(obj: T): AsyncDisposable<T> => {
 };
 
 export type AsyncDisposable<T> = T & {
-	[Symbol.asyncDispose]: () => Promise<void>;
+	[Symbol.dispose]: () => Promise<void>;
 };

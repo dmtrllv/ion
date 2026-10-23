@@ -1,4 +1,4 @@
-export declare const asyncDisposable: <T extends {}>(obj: T) => AsyncDisposable<T>;
+export declare const disposable: <T extends {}>(obj: T) => AsyncDisposable<T>;
 export type AsyncDisposable<T> = T & {
-    [Symbol.asyncDispose]: () => Promise<void>;
+    [Symbol.dispose]: () => Promise<void>;
 };

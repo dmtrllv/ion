@@ -17,8 +17,8 @@ export abstract class Ast<T extends Node = Node> {
 		throw new Error(`${this.name} has no registered ts.Node matcher!`);
 	}
 
-	public static async tryParse<T extends typeof Ast<any>>(this: T, compiler: Compiler, node: Node): Promise<InstanceType<T> | undefined> {
-		if (await this.matcher(node, compiler)) {
+	public static tryParse<T extends typeof Ast<any>>(this: T, compiler: Compiler, node: Node): InstanceType<T> | undefined {
+		if (this.matcher(node, compiler)) {
 			const Class: AstConstructor<any, any> = this as any;
 			return new Class(compiler, node);
 		}
@@ -31,20 +31,22 @@ export abstract class Ast<T extends Node = Node> {
 	@cached
 	protected get compiler() { return this.#compiler };
 
+	// @internal
 	@cached
-	protected get node() { return this.#node; }
+	public get node() { return this.#node; }
 
 	public get source() {
 		return this.#node.getText()
 	}
 
+	// @internal
 	public constructor(compiler: Compiler, node: T) {
 		this.#compiler = compiler;
 		this.#node = node;
 	}
 
 	@cached
-	public get parent() {
+	public get parent(): Ast | undefined {
 		if (this.node.parent)
 			return this.compiler.ast.resolve(this.node.parent);
 		return undefined;
@@ -56,25 +58,25 @@ export abstract class Ast<T extends Node = Node> {
 	};
 
 	@cached
-	public async findParent<T extends Ast<U>, U extends Node>(type: AstConstructor<T, U>): Promise<T | undefined> {
-		let current = await this.parent;
+	public findParent<T extends Ast<U>, U extends Node>(type: AstConstructor<T, U>): T | undefined {
+		let current = this.parent;
 
 		while (current) {
 			if (current instanceof type)
 				return current;
-			current = await current.parent;
+			current = current.parent;
 		}
 
 		return undefined;
 	}
 
 	@cached
-	public async getChildren(): Promise<Ast[]> {
-		return await Promise.all(this.node.getChildren().map(this.compiler.ast.resolve));
+	public getChildren(): Ast[] {
+		return this.node.getChildren().map(this.compiler.ast.resolve);
 	}
 
-	public async findChildren<T extends Ast<U>, U extends Node>(type: AstConstructor<T, U>): Promise<T[]> {
-		const children = await this.getChildren();
+	public findChildren<T extends Ast<U>, U extends Node>(type: AstConstructor<T, U>): T[] {
+		const children = this.getChildren();
 		return children.filter(s => s.is(type));
 	}
 
@@ -88,12 +90,12 @@ export abstract class Ast<T extends Node = Node> {
 			const prefix = "  ".repeat(indent);
 			const kind = SyntaxKind[node.kind];
 			let text = node.getText().replace(/\s+/g, " ");
-			if(text.length > 20)
+			if (text.length > 20)
 				text = text.slice(0, 17) + "...";
 			buffer += `${prefix}${kind}: ${text}\n`;
 			node.forEachChild(child => printAst(child, indent + 2));
 		}
-		
+
 		printAst(this.node, 0);
 		return buffer;
 	}

@@ -4,7 +4,7 @@ import { Expression } from "./expression.js";
 import { Class } from "./class.js";
 import { Macro } from "./macro.js";
 import { Import } from "./import.js";
-export type Statement = Macro | Variable | Function | Class | Import | Expression<any>;
+export type Statement = Macro | Variable | Function | Class | Import | Expression;
 export interface Exportable {
     get isExported(): boolean;
 }

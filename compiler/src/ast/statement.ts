@@ -11,7 +11,7 @@ export type Statement =
 	| Function
 	| Class
 	| Import
-	| Expression<any>;
+	| Expression;
 
 export interface Exportable {
 	get isExported(): boolean;

@@ -9,44 +9,45 @@ import { Function } from "./function.js";
 import { Class } from "./class.js";
 import { SymbolFlags } from "typescript/sync";
 import { Macro } from "./macro.js";
+import { Import } from "./import.js";
 
 export class AstTree {
-	readonly #cache = new WeakMap<Node, Promise<Ast>>();
+	readonly #cache = new WeakMap<Node, Ast>();
 	readonly #compiler: Compiler;
 
 	public constructor(compiler: Compiler) {
 		this.#compiler = compiler;
 	}
 
-	public readonly resolveArray = async <T extends Ast<any> = Ast<any>>(nodes: Node[] | NodeArray<Node>): Promise<T[]> => Promise.all(nodes.map(n => this.resolve<T>(n)));
+	public readonly resolveArray = <T extends Ast<any> = Ast<any>>(nodes: Node[] | NodeArray<Node>): T[] => nodes.map(n => this.resolve<T>(n));
 
-	public readonly resolve = async <T extends Ast<any> = Ast<any>>(node: Node): Promise<T> => {
+	public readonly resolve = <T extends Ast<any> = Ast<any>>(node: Node): T => {
 		const cached = this.#cache.get(node);
 		if (cached)
-			return cached as Promise<T>;
+			return cached as T;
 
 		const result = this.#parseNode(node);
 		this.#cache.set(node, result);
-		return await result as T;
+		return result as T;
 	}
 
-	public readonly resolveModule = async (path: string): Promise<Module> => {
-		const source = await this.#compiler.program.getSourceFile(path);
+	public readonly resolveModule = (path: string): Module => {
+		const source = this.#compiler.program.getSourceFile(path);
 		assert.ok(source);
-		return this.resolve(source) as Promise<Module>;
+		return this.resolve(source) as Module;
 	}
 
-	readonly #parseNode = async (node: Node): Promise<Ast> => {
+	readonly #parseNode = (node: Node): Ast => {
 		for (const type of AstTypes) {
-			const ast = await type.tryParse(this.#compiler, node);
+			const ast = type.tryParse(this.#compiler, node);
 			if (ast)
 				return ast;
 		}
 		return new Unknown(this.#compiler, node);
 	}
 
-	public async resolveAliasedSymbol(node: Node) {
-		const symbol = await this.#compiler.checker.getSymbolAtLocation(node);
+	public resolveAliasedSymbol(node: Node) {
+		const symbol = this.#compiler.checker.getSymbolAtLocation(node);
 		if (symbol && (symbol?.flags & SymbolFlags.Alias))
 			return this.#compiler.checker.getAliasedSymbol(symbol);
 		return symbol;
@@ -56,6 +57,7 @@ export class AstTree {
 
 const AstTypes = [
 	Macro,
+	Import,
 	Module,
 	VariableStatement,
 	Function,

@@ -8,14 +8,26 @@ export declare const comptime: typeof comptimeFn & {
     fn: typeof constfn;
 };
 export interface MacroClosure<T, Args extends readonly any[]> {
-    (this: MacroContext, ...args: Args): T;
+    (context: MacroContext, ...args: Args): T;
 }
 export type MacroContext = {
-    ast: {
-        createClass: (props: CreateClassProps) => ast.Class;
-        createFunction: (name: string | ast.StringLiteral, statements: (ast.Statement | ast.Expression)[]) => ast.Function;
-        parseExprString: (source: string) => ast.Expression;
+    readonly ast: {
+        readonly createClass: (props: CreateClassProps) => ast.Class;
+        readonly createFunction: (name: string | ast.StringLiteral, statements: (ast.Statement | ast.Expression)[]) => ast.Function;
+        readonly parseExprString: (source: string) => ast.Expression;
+        readonly addMethod: (target: ast.Class, method: ast.Function) => ast.Class;
     };
+};
+export interface DeriveClosure<T, Args extends readonly any[]> {
+    (context: DeriveContext, ...args: Args): T;
+}
+export type DeriveContext = {
+    readonly ast: {
+        readonly createClass: (props: CreateClassProps) => ast.Class;
+        readonly createFunction: (name: string | ast.StringLiteral, statements: (ast.Statement | ast.Expression)[]) => ast.Function;
+        readonly parseExprString: (source: string) => ast.Expression;
+    };
+    readonly target: ast.Class;
 };
 export type CreateClassProps = {
     name: string | ast.StringLiteral;

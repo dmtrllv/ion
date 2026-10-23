@@ -30,21 +30,38 @@ export class ComptimeModuleTransformer {
 
 		const statements = module.node.statements.map(stmt => {
 			const ast = compiler.ast.resolve(stmt);
-			
+
 			if (ast.is(Import)) {
 				const importedMod = ast.getModule();
-				//if(importedMod.package.isComptime)
+				if (!importedMod.package.isComptime)
+					return stmt;
+
+				if(importedMod.package === compiler.root) {
+					return stmt;
+				}
 
 				const copmtimePath = importedMod.resolveComptimePath();
 				const relativePath = relative(moduleDir, copmtimePath);
-				console.log(relativePath);
-			} else if(ast.is(VariableStatement)) {
-				const keep: any = [];
-				for(const v of ast.variables) {
-					if((v.expression)?.evaluationType !== "runtime") {
-						keep.push()
+				console.log("TODO: rewrite to relative import: ", relativePath);
+				const importPath = factory.createStringLiteral(relativePath, ts.TokenFlags.StringLiteralFlags);
+				return factory.updateImportDeclaration(ast.node, ast.node.modifiers, ast.node.importClause, importPath);
+			} else if (ast.is(VariableStatement)) {
+				//const keep: any = [];
+				for (const v of ast.variables) {
+					if(v.expression) {
+						console.log(v.expression, v.expression.evaluationType);
 					}
+					//if(v.expression?.isOneOf(Function)) {
+					//	keep.push(1);
+					//	continue;
+					//}
+
+					//if (v.expression && (v.expression.evaluationType !== "runtime")) {
+					//	console.log(v.expression?.evaluationType)
+					//	keep.push(1);
+					//}
 				}
+				//console.log(ast.variables.length, keep.length);
 			}
 
 			return stmt;

@@ -4,7 +4,8 @@
 	"license": "MIT",
 	"workspaces": [
 		"compiler",
-		"test"
+		"test",
+		"test-lib"
 	],
 	"scripts": {
 		"watch": "npm run watch --workspaces --if-present",

@@ -27,21 +27,25 @@ export class Macro extends Ast<ts.VariableStatement> implements Exportable {
 	}
 }
 
-const resolveDeclaration = (node: ts.Expression, compiler: Compiler, seen = new Set<Symbol>()): ts.VariableDeclaration | undefined => {
-	if (!ts.isIdentifier(node))
+export const resolveDeclaration = (node: ts.Expression, compiler: Compiler, seen = new Set<Symbol>()): ts.VariableDeclaration | undefined => {
+	if (!ts.isIdentifier(node)) {
 		return undefined;
+	}
 
 	let symbol = compiler.checker.getSymbolAtLocation(node);
-	if (!symbol)
+
+	if (!symbol) {
 		return undefined;
+	}
 
 	if (symbol.flags & SymbolFlags.Alias)
 		symbol = compiler.checker.getAliasedSymbol(symbol);
 
 	assert.ok(symbol);
 
-	if (seen.has(symbol))
+	if (seen.has(symbol)) {
 		return undefined;
+	}
 
 	seen.add(symbol);
 
@@ -55,7 +59,7 @@ const resolveDeclaration = (node: ts.Expression, compiler: Compiler, seen = new 
 	return declaration;
 }
 
-const getCallIdentifier = (node: ts.CallExpression): ts.Identifier | undefined => {
+export const getCallIdentifier = (node: ts.CallExpression): ts.Identifier | undefined => {
 	let expression = node.expression;
 
 	while (ts.isPropertyAccessExpression(expression))
@@ -67,7 +71,7 @@ const getCallIdentifier = (node: ts.CallExpression): ts.Identifier | undefined =
 const getMacroCallDeclaration = (node: ts.Node, compiler: Compiler): Macro | undefined => {
 	if (!ts.isCallExpression(node))
 		return undefined;
-
+	
 	const callIdent = getCallIdentifier(node);
 	if (!callIdent)
 		return undefined;
@@ -97,7 +101,7 @@ export class MacroCall extends Expression<ts.CallExpression> {
 	}
 }
 
-const parseComptimeDeclarationType = (node: ts.Node, compiler: Compiler): "macro" | "fn" | "comptime" | undefined => {
+export const parseComptimeDeclarationType = (node: ts.Node, compiler: Compiler): "macro" | "fn" | "comptime" | undefined => {
 	if (!ts.isVariableStatement(node))
 		return undefined;
 

@@ -6,3 +6,4 @@ export type ComptimeManifest = {
 export type CopmtimeModuleExports = {
     [ident: string]: string;
 };
+export declare const createManifest: () => void;

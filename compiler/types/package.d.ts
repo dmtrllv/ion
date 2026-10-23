@@ -1,5 +1,5 @@
 import { PackageJson } from "./package-json.js";
-import { ComptimeManifest } from "./manifest.js";
+import { ComptimeManifest } from "./comptime/manifest.js";
 import { API, ParsedCommandLine } from "typescript/sync";
 export declare class Package {
     #private;

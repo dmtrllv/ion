@@ -2,7 +2,7 @@ import assert from "node:assert";
 import { isAbsolute, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { loadPackageJson, PackageJson } from "./package-json.js";
-import { ComptimeManifest } from "./manifest.js";
+import { ComptimeManifest } from "./comptime/manifest.js";
 import { API, formatDiagnosticsWithColorAndContext, ParsedCommandLine } from "typescript/sync";
 
 export class Package {
@@ -59,7 +59,7 @@ export class Package {
 		if (!existsSync(manifestPath))
 			this.comptimeManifest = undefined;
 		else
-			this.comptimeManifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+			this.comptimeManifest = ComptimeManifest.load(manifestPath);
 	}
 
 	public comptimePathFromOutputPath(path: string) {

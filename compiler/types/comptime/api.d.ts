@@ -2,7 +2,7 @@ import { Ast } from "../ast/ast.js";
 import * as ast from "../ast/index.js";
 declare const comptimeFn: <T>(closure: () => T) => T;
 declare const macro: <const T extends Ast, const Args extends readonly ast.Ast[]>(closure: MacroClosure<T, Args>) => (...args: MacroArgs<Args>) => MacroResult<T>;
-declare const constfn: <T>(closure: (...args: any[]) => T) => (...args: any[]) => T;
+declare const constfn: <const T, const Args extends readonly any[]>(closure: (...args: Args) => T) => (...args: Args) => T;
 export declare const comptime: typeof comptimeFn & {
     macro: typeof macro;
     fn: typeof constfn;

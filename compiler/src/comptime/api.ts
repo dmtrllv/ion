@@ -6,7 +6,7 @@ const comptimeFn = <T>(closure: () => T): T => closure();
 const macro = <const T extends Ast, const Args extends readonly ast.Ast[]>(closure: MacroClosure<T, Args>): (...args: MacroArgs<Args>) => MacroResult<T> => (..._args: any[]) => closure as any;
 //const derive = <const T extends Ast | void, const Args extends readonly ast.Ast[]>(closure: DeriveClosure<T, Args>): (...args: MacroArgs<Args>) => MacroResult<T> => (..._args: any[]) => closure as any;
 
-const constfn = <T>(closure: (...args: any[]) => T): (...args: any[]) => T => () => closure();
+const constfn = <const T, const Args extends readonly any[]>(closure: (...args: Args) => T): (...args: Args) => T => (...args: Args) => closure(...args);
 
 export const comptime = Object.assign(comptimeFn, {
 	macro,

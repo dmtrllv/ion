@@ -7,6 +7,8 @@ import { Module } from "./ast/module.js";
 import { existsSync } from "node:fs";
 import { resolveComptimeSymbols } from "./comptime/symbols.js";
 import { cached, resolveNodeModules } from "./utils.js";
+import { ComptimeModuleTransformer } from "./comptime/transformer.js";
+import { ComptimeManifest } from "./comptime/manifest.js";
 
 export class Compiler {
 	public static readonly load = (root: string) => {
@@ -73,20 +75,23 @@ export class Compiler {
 		return this.resolvePackage(packageRoot);
 	}
 
-	public compile() {
-		//const _transformer = new ComptimeModuleTransformer();
-		for (const path of this.root.sourceFilePaths) {
-			const module = this.ast.resolveModule(path);
-			console.log(module.path);
-			//const macros = module.getMacroDeclarations();
-			//const exports = module.exports;
-			//transformer.transform(this, module);
-			//console.log(module);
-
-
-			//console.log(path);
-			//console.log("macros:", macros.map(m => m.name));
-			//console.log("exports:", exports);
+	public compile(options: { type: "app" | "lib" }) {
+		if(options.type === "lib") {
+			const manifest = ComptimeManifest.create(this);
 		}
+		//const transformer = new ComptimeModuleTransformer();
+		//for (const path of this.root.sourceFilePaths) {
+		//	const module = this.ast.resolveModule(path);
+		//	//console.log(module.path);
+		//	//const macros = module.getMacroDeclarations();
+		//	//const exports = module.exports;
+		//	transformer.transform(this, module);
+		//	//console.log(module);
+
+
+		//	//console.log(path);
+		//	//console.log("macros:", macros.map(m => m.name));
+		//	//console.log("exports:", exports);
+		//}
 	}
 }

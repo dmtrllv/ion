@@ -24,5 +24,5 @@ export const isExportable = <T extends Statement>(statement: T): statement is Ex
 export const isExported = (statement: Statement) => {
 	if (isExportable(statement))
 		return statement.isExported;
-	return false;	
+	return false;
 };

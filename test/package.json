@@ -9,5 +9,8 @@
 	"type": "module",
 	"devDependencies": {
 		"@ion/compiler": "file:../compiler"
+	},
+	"dependencies": {
+		"test-lib": "file:../test-lib"
 	}
 }

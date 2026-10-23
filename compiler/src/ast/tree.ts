@@ -8,8 +8,9 @@ import { Variable, VariableStatement } from "./var.js";
 import { Function } from "./function.js";
 import { Class } from "./class.js";
 import { SymbolFlags } from "typescript/sync";
-import { Macro } from "./macro.js";
+import { Macro, MacroCall } from "./macro.js";
 import { Import } from "./import.js";
+import { ConstFn, ConstFnCall } from "./constfn.js";
 
 export class AstTree {
 	readonly #cache = new WeakMap<Node, Ast>();
@@ -33,7 +34,7 @@ export class AstTree {
 
 	public readonly resolveModule = (path: string): Module => {
 		const source = this.#compiler.program.getSourceFile(path);
-		assert.ok(source);
+		assert.ok(source, `Could not get source file for ${path}!`);
 		return this.resolve(source) as Module;
 	}
 
@@ -57,6 +58,9 @@ export class AstTree {
 
 const AstTypes = [
 	Macro,
+	MacroCall,
+	ConstFn,
+	ConstFnCall,
 	Import,
 	Module,
 	VariableStatement,

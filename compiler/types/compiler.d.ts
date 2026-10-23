@@ -17,5 +17,7 @@ export declare class Compiler {
     createResolver(): ModuleResolver;
     resolvePackage(path: string): Package;
     resolvePackageFromModule(module: Module): Package | undefined;
-    compile(): void;
+    compile(options: {
+        type: "app" | "lib";
+    }): void;
 }

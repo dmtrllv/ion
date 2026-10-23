@@ -103,4 +103,4 @@ export abstract class Ast<T extends Node = Node> {
 
 export type AstConstructor<T extends Ast<U>, U extends Node> = new (compiler: Compiler, node: U) => T;
 
-export type OneOf<T extends AstConstructor<any, any>[]> = T[number];
+export type OneOf<T extends AstConstructor<any, any>[]> = InstanceType<T[number]>;

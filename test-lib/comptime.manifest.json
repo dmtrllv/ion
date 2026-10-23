@@ -1,1 +1,7 @@
-{}
+{
+  "index.ts": {
+    "macroTest": "comptime",
+    "sum": "comptime",
+    "hello": "runtime"
+  }
+}

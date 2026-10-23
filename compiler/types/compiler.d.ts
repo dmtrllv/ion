@@ -1,7 +1,6 @@
 import { API, Checker, ParsedCommandLine, Program, ModuleResolver } from "typescript/sync";
 import { AstTree } from "./ast/tree.js";
 import { Package } from "./package.js";
-import { Module } from "./ast/module.js";
 export declare class Compiler {
     static readonly load: (root: string) => import("./disposable.js").AsyncDisposable<Compiler> | undefined;
     readonly root: Package;
@@ -16,7 +15,7 @@ export declare class Compiler {
     private constructor();
     createResolver(): ModuleResolver;
     resolvePackage(path: string): Package;
-    resolvePackageFromModule(module: Module): Package | undefined;
+    resolvePackageFromModule(modulePath: string): Package | undefined;
     compile(options: {
         type: "app" | "lib";
     }): void;

@@ -1,13 +1,17 @@
 import { VariableDeclaration } from "typescript/ast";
 import * as ts from "typescript/ast";
 import { cached } from "../utils.js";
-import { Ast } from "./ast.js";
+import { Ast, EvaluationType } from "./ast.js";
 import assert from "node:assert";
 import { Expression } from "./expression.js";
 import { Exportable } from "./statement.js";
 
 @Ast.register(ts.isVariableStatement)
 export class VariableStatement extends Ast<ts.VariableStatement> implements Exportable {
+	public override get evaluationType(): EvaluationType {
+		return !!this.variables.find(v => v.evaluationType === "runtime") ? "runtime" : "constant";
+	}
+
 	@cached
 	public get variables() {
 		return this.compiler.ast.resolveArray<Variable>(this.node.declarationList.declarations);
@@ -23,6 +27,10 @@ export class VariableStatement extends Ast<ts.VariableStatement> implements Expo
 
 @Ast.register(ts.isVariableDeclaration)
 export class Variable extends Ast<VariableDeclaration> {
+	public override get evaluationType(): EvaluationType {
+		return this.expression?.evaluationType || "runtime";
+	}
+
 	@cached
 	public get name(): string {
 		assert.ok(ts.isIdentifier(this.node.name));

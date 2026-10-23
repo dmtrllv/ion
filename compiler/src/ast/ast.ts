@@ -28,6 +28,8 @@ export abstract class Ast<T extends Node = Node> {
 	readonly #compiler: Compiler;
 	readonly #node: T;
 
+	public abstract get evaluationType(): EvaluationType;
+
 	@cached
 	protected get compiler() { return this.#compiler };
 
@@ -100,6 +102,11 @@ export abstract class Ast<T extends Node = Node> {
 		return buffer;
 	}
 }
+
+export type EvaluationType = 
+| "comptime"
+| "runtime"
+| "constant";
 
 export type AstConstructor<T extends Ast<U>, U extends Node> = new (compiler: Compiler, node: U) => T;
 

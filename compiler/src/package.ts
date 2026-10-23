@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { isAbsolute, resolve } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { loadPackageJson, PackageJson } from "./package-json.js";
 import { ComptimeManifest } from "./comptime/manifest.js";
 import { API, formatDiagnosticsWithColorAndContext, ParsedCommandLine } from "typescript/sync";

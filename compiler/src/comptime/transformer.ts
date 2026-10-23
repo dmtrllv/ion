@@ -4,23 +4,17 @@ import { factory } from "typescript/ast";
 import { Compiler } from "../compiler.js";
 import { Import } from "../ast/import.js";
 import { dirname, relative } from "node:path";
-import { Ast } from "../ast/ast.js";
-import { VariableStatement } from "../ast/var.js";
+import { Macro } from "../ast/macro.js";
+import assert from "node:assert";
 
 export class ComptimeModuleTransformer {
 	public constructor() {
 
 	}
 
-	public transform(compiler: Compiler, module: Module): Module {
+	public transform(compiler: Compiler, module: Module): string {
 		const moduleDir = dirname(module.path);
-
-		//const ctx = new AstTransformContext();
-
-		//const transformer = createTransformFunction(ctx);
-
-		const macros = module.getMacroDeclarations();
-
+		const macros = module.statements.filter(s => s.is(Macro));
 		const missingMacroExports: ts.ExportSpecifier[] = [];
 
 		macros.forEach(m => {
@@ -33,39 +27,33 @@ export class ComptimeModuleTransformer {
 
 			if (ast.is(Import)) {
 				const importedMod = ast.getModule();
-				if (!importedMod.package.isComptime)
+
+				const pkg = importedMod.package;
+
+				if (!pkg.isComptime || pkg === compiler.root)
 					return stmt;
 
-				if(importedMod.package === compiler.root) {
-					return stmt;
+				let path: string | undefined;
+				if (importedMod.path.startsWith(pkg.typeDeclarationPath)) {
+					path = importedMod.path.replace(pkg.typeDeclarationPath, pkg.comptimePath).replace(/\.d\.tsx?$/i, ".js");
+				} else if (importedMod.path.startsWith(pkg.sourcePath)) {
+					path = importedMod.path.replace(pkg.sourcePath, pkg.comptimePath).replace(/\.tsx?$/i, ".js");
 				}
 
-				const copmtimePath = importedMod.resolveComptimePath();
-				const relativePath = relative(moduleDir, copmtimePath);
+				assert.ok(path);
+
+				const relativePath = relative(moduleDir, path);
 				console.log("TODO: rewrite to relative import: ", relativePath);
 				const importPath = factory.createStringLiteral(relativePath, ts.TokenFlags.StringLiteralFlags);
 				return factory.updateImportDeclaration(ast.node, ast.node.modifiers, ast.node.importClause, importPath);
-			} else if (ast.is(VariableStatement)) {
-				//const keep: any = [];
-				for (const v of ast.variables) {
-					if(v.expression) {
-						console.log(v.expression, v.expression.evaluationType);
-					}
-					//if(v.expression?.isOneOf(Function)) {
-					//	keep.push(1);
-					//	continue;
-					//}
-
-					//if (v.expression && (v.expression.evaluationType !== "runtime")) {
-					//	console.log(v.expression?.evaluationType)
-					//	keep.push(1);
-					//}
-				}
-				//console.log(ast.variables.length, keep.length);
+			} else if (ast.evaluationType !== "runtime") {
+				return stmt;
+			} else {
+				console.log("skip runtime ast", ast.constructor.name, ast.evaluationType);
 			}
 
-			return stmt;
-		});
+			return null;
+		}).filter(s => !!s);
 
 		statements.push(factory.createExportDeclaration(undefined, false, factory.createNamedExports(missingMacroExports), undefined));
 
@@ -75,29 +63,29 @@ export class ComptimeModuleTransformer {
 		const result = compiler.api.transpileModule(printed, {
 			compilerOptions: { target: ts.ScriptTarget.ES2022, removeComments: true },
 		});
-		console.log(result);
-		return new Module(compiler, updated);
+
+		return result.outputText;
 	}
 }
 
-export class AstTransformContext {
-	public createClass(_name: string) {
+//export class AstTransformContext {
+//	public createClass(_name: string) {
 
-	}
-}
+//	}
+//}
 
-export const createTransformFunction = (ctx: AstTransformContext) => {
-	return <T extends Ast>(ast: T, transformer: (ast: Ast, ctx: AstTransformContext) => Ast): T => {
-		const transform = (ast: Ast): Ast => {
-			const transformed = transformer(ast, ctx);
+//export const createTransformFunction = (ctx: AstTransformContext) => {
+//	return <T extends Ast>(ast: T, transformer: (ast: Ast, ctx: AstTransformContext) => Ast): T => {
+//		const transform = (ast: Ast): Ast => {
+//			const transformed = transformer(ast, ctx);
 
-			for (const child of transformed.getChildren()) {
-				transform(child);
-			}
+//			for (const child of transformed.getChildren()) {
+//				transform(child);
+//			}
 
-			return transformed;
-		};
+//			return transformed;
+//		};
 
-		return transform(ast) as T;
-	};
-}
+//		return transform(ast) as T;
+//	};
+//}

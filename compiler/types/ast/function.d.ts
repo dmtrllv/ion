@@ -1,7 +1,6 @@
 import * as ts from "typescript/ast";
-import { Ast } from "./ast.js";
+import { Ast, EvaluationType } from "./ast.js";
 import { Statement } from "./statement.js";
-import { EvaluationType } from "./expression.js";
 export declare class Function extends Ast<ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction> {
     get isAnonymous(): boolean;
     get name(): string | undefined;

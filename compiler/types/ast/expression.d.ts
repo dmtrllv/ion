@@ -1,6 +1,9 @@
-import { Node } from "typescript/ast";
-import { Ast } from "./ast.js";
-export declare abstract class Expression<T extends Node = Node> extends Ast<T> {
-    abstract get evaluationType(): EvaluationType;
+import * as ts from "typescript/ast";
+import { Ast, EvaluationType } from "./ast.js";
+export declare abstract class Expression<T extends ts.Node = ts.Node> extends Ast<T> {
 }
-export type EvaluationType = "comptime" | "runtime" | "constant";
+export declare class FunctionCall extends Expression<ts.CallExpression> {
+    get evaluationType(): EvaluationType;
+    get arguments(): Expression<ts.Node>[];
+    get declaration(): Ast<any>;
+}

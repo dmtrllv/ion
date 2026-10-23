@@ -1,10 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Compiler } from "../compiler.js";
 import assert from "node:assert";
 import { Macro } from "../ast/macro.js";
 import { VariableStatement } from "../ast/var.js";
 import { isExportable } from "../ast/statement.js";
-import { sep } from "node:path";
+import { resolve, sep } from "node:path";
 import { ConstFn } from "../ast/constfn.js";
 
 export class ComptimeManifest {
@@ -26,7 +26,7 @@ export class ComptimeManifest {
 					if (e.isOneOf(Macro, ConstFn)) {
 						moduleExports[e.name] = "comptime";
 					} else if (e.is(VariableStatement)) {
-						for(const v of e.variables)
+						for (const v of e.variables)
 							moduleExports[v.name] = v.expression?.evaluationType || "runtime";
 					} else {
 						console.log("check exports", e.constructor.name);
@@ -35,7 +35,7 @@ export class ComptimeManifest {
 			}
 			exports[relativePath] = moduleExports;
 		}
-		console.log("exports", exports);
+		writeFileSync(resolve(root.path, "comptime.manifest.json"), JSON.stringify(exports, null, 2));
 	}
 
 	public readonly exports: Readonly<Record<string, Readonly<CopmtimeModuleExports>>>;

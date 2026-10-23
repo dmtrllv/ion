@@ -3,8 +3,7 @@ import { API, Checker, ParsedCommandLine, Program, ModuleResolver } from "typesc
 import { disposable } from "./disposable.js";
 import { AstTree } from "./ast/tree.js";
 import { Package } from "./package.js";
-import { Module } from "./ast/module.js";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolveComptimeSymbols } from "./comptime/symbols.js";
 import { cached, resolveNodeModules } from "./utils.js";
 import { ComptimeModuleTransformer } from "./comptime/transformer.js";
@@ -63,8 +62,8 @@ export class Compiler {
 		return pkg;
 	}
 
-	public resolvePackageFromModule(module: Module) {
-		let packageRoot = dirname(module.path);
+	public resolvePackageFromModule(modulePath: string) {
+		let packageRoot = dirname(modulePath);
 		while (!existsSync(join(packageRoot, "package.json"))) {
 			const parent = dirname(packageRoot);
 			if (parent === packageRoot) {
@@ -76,22 +75,26 @@ export class Compiler {
 	}
 
 	public compile(options: { type: "app" | "lib" }) {
-		if(options.type === "lib") {
-			const manifest = ComptimeManifest.create(this);
+		if (options.type === "lib") {
+			ComptimeManifest.create(this);
 		}
-		//const transformer = new ComptimeModuleTransformer();
-		//for (const path of this.root.sourceFilePaths) {
-		//	const module = this.ast.resolveModule(path);
-		//	//console.log(module.path);
-		//	//const macros = module.getMacroDeclarations();
-		//	//const exports = module.exports;
-		//	transformer.transform(this, module);
-		//	//console.log(module);
+
+		const transformer = new ComptimeModuleTransformer();
+		for (const path of this.root.sourceFilePaths) {
+			const module = this.ast.resolveModule(path);
+			//console.log(module.path);
+			//const macros = module.getMacroDeclarations();
+			//const exports = module.exports;
+			const source = transformer.transform(this, module);
+			const comptimePath = module.path.replace(module.package.sourcePath, module.package.comptimePath).replace(/\.tsx?$/, ".js");
+			mkdirSync(dirname(comptimePath), { recursive: true });
+			writeFileSync(comptimePath, source, "utf-8");
+			//console.log(module);
 
 
-		//	//console.log(path);
-		//	//console.log("macros:", macros.map(m => m.name));
-		//	//console.log("exports:", exports);
-		//}
+			//console.log(path);
+			//console.log("macros:", macros.map(m => m.name));
+			//console.log("exports:", exports);
+		}
 	}
 }

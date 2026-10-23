@@ -1,4 +1,5 @@
 import { Node } from "typescript/ast";
-import { Ast } from "./ast.js";
+import { Ast, EvaluationType } from "./ast.js";
 export declare class Unknown extends Ast<Node> {
+    get evaluationType(): EvaluationType;
 }

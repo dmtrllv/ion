@@ -7,6 +7,7 @@ export declare abstract class Ast<T extends Node = Node> {
     static readonly register: (matcher: NodeMatcher) => <T_1 extends AstConstructor<any, any>>(Class: T_1) => void;
     private static get matcher();
     static tryParse<T extends typeof Ast<any>>(this: T, compiler: Compiler, node: Node): InstanceType<T> | undefined;
+    abstract get evaluationType(): EvaluationType;
     protected get compiler(): Compiler;
     get source(): string;
     get parent(): Ast | undefined;
@@ -18,5 +19,6 @@ export declare abstract class Ast<T extends Node = Node> {
     [inspect.custom](): string;
     protected debug(): string;
 }
+export type EvaluationType = "comptime" | "runtime" | "constant";
 export type AstConstructor<T extends Ast<U>, U extends Node> = new (compiler: Compiler, node: U) => T;
 export type OneOf<T extends AstConstructor<any, any>[]> = InstanceType<T[number]>;

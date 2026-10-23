@@ -1,8 +1,7 @@
 import * as ts from "typescript/ast";
-import { Ast } from "./ast.js";
+import { Ast, EvaluationType } from "./ast.js";
 import { Statement } from "./statement.js";
 import { cached } from "../utils.js";
-import { EvaluationType } from "./expression.js";
 
 @Ast.register(node => ts.isFunctionDeclaration(node) || ts.isArrowFunction(node) || ts.isFunctionExpression(node))
 export class Function extends Ast<ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction> {

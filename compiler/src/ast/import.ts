@@ -1,5 +1,5 @@
 import * as ts from "typescript/ast";
-import { Ast } from "./ast.js";
+import { Ast, EvaluationType } from "./ast.js";
 import { cached } from "../utils.js";
 import assert from "node:assert";
 import { Module } from "./module.js";
@@ -7,6 +7,10 @@ import { dirname } from "node:path";
 
 @Ast.register(ts.isImportDeclaration)
 export class Import extends Ast<ts.ImportDeclaration> {
+	public override get evaluationType(): EvaluationType {
+		return "constant";
+	}
+
 	@cached
 	public get path(): string {
 		const path = this.node.moduleSpecifier;

@@ -12,7 +12,7 @@ export declare class Compiler {
     readonly ast: AstTree;
     readonly nodeModulesPath: string;
     readonly packages: Map<string, Promise<Package>>;
-    getComptimeSymbols(): Promise<import("./copmtime/symbols.js").ComptimeSymbols | undefined>;
+    getComptimeSymbols(): Promise<import("./comptime/symbols.js").ComptimeSymbols | undefined>;
     private constructor();
     resolvePackage(path: string): Promise<Package>;
     resolvePackageFromModule(module: Module): Promise<Package | undefined>;

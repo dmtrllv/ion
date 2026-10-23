@@ -7,44 +7,55 @@ import assert from "node:assert";
 import { Variable, VariableStatement } from "./var.js";
 import { Function } from "./function.js";
 import { Class } from "./class.js";
+import { SymbolFlags } from "typescript/sync";
+import { Macro } from "./macro.js";
 
 export class AstTree {
-	readonly #cache = new WeakMap<Node, Ast>();
+	readonly #cache = new WeakMap<Node, Promise<Ast>>();
 	readonly #compiler: Compiler;
 
 	public constructor(compiler: Compiler) {
 		this.#compiler = compiler;
 	}
 
-	public readonly resolveArray = <T extends Ast<any> = Ast<any>>(nodes: Node[] | NodeArray<Node>): T[] => nodes.map(n => this.resolve(n));
+	public readonly resolveArray = async <T extends Ast<any> = Ast<any>>(nodes: Node[] | NodeArray<Node>): Promise<T[]> => Promise.all(nodes.map(n => this.resolve<T>(n)));
 
-	public readonly resolve = <T extends Ast<any> = Ast<any>>(node: Node): T => {
+	public readonly resolve = async <T extends Ast<any> = Ast<any>>(node: Node): Promise<T> => {
 		const cached = this.#cache.get(node);
 		if (cached)
-			return cached as T;
+			return cached as Promise<T>;
 
 		const result = this.#parseNode(node);
 		this.#cache.set(node, result);
-		return result as T;
+		return await result as T;
 	}
 
 	public readonly resolveModule = async (path: string): Promise<Module> => {
 		const source = await this.#compiler.program.getSourceFile(path);
 		assert.ok(source);
-		return this.resolve(source) as Module;
+		return this.resolve(source) as Promise<Module>;
 	}
 
-	readonly #parseNode = (node: Node): Ast => {
+	readonly #parseNode = async (node: Node): Promise<Ast> => {
 		for (const type of AstTypes) {
-			const ast = type.tryParse(this.#compiler, node);
+			const ast = await type.tryParse(this.#compiler, node);
 			if (ast)
 				return ast;
 		}
 		return new Unknown(this.#compiler, node);
 	}
+
+	public async resolveAliasedSymbol(node: Node) {
+		const symbol = await this.#compiler.checker.getSymbolAtLocation(node);
+		if (symbol && (symbol?.flags & SymbolFlags.Alias))
+			return this.#compiler.checker.getAliasedSymbol(symbol);
+		return symbol;
+	}
+
 }
 
 const AstTypes = [
+	Macro,
 	Module,
 	VariableStatement,
 	Function,

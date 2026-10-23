@@ -10,6 +10,6 @@ export declare class Function extends Ast<ts.FunctionDeclaration | ts.FunctionEx
     get isGenerator(): boolean;
     get generics(): any[];
     get returnType(): any[];
-    get statments(): Statement[];
+    get statments(): Promise<Statement[]>;
     get evaluationType(): EvaluationType;
 }

@@ -1,7 +1,9 @@
-#! /usr/bin/env node
+#!/usr/bin/env node
 
 import { Compiler } from "./compiler.js";
 
 await using compiler = await Compiler.load(process.cwd());
 
-await compiler.compile();
+if (compiler) {
+	await compiler.compile();
+}

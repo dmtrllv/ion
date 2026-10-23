@@ -5,10 +5,7 @@ import { AstTree } from "./ast/tree.js";
 import { Package } from "./package.js";
 import { Module } from "./ast/module.js";
 import { existsSync } from "node:fs";
-import { VariableStatement } from "./ast/var.js";
-import { Class } from "./ast/class.js";
-import { Function } from "./ast/function.js";
-import { resolveComptimeSymbols } from "./copmtime/symbols.js";
+import { resolveComptimeSymbols } from "./comptime/symbols.js";
 import { cached, resolveNodeModules } from "./utils.js";
 
 export class Compiler {
@@ -75,50 +72,14 @@ export class Compiler {
 	public async compile() {
 		for (const path of this.root.sourceFilePaths) {
 			const module = await this.ast.resolveModule(path);
-			console.log(module.path);
-			for (const stmt of module.statements) {
-				if (stmt.is(VariableStatement)) {
-					console.log(stmt.variables.map(v => v.name))
-				} else if (stmt.is(Class) || stmt.is(Function)) {
-					console.log(stmt.constructor.name, stmt.name);
-				}
-			}
+			const macros = await module.getMacroDeclarations();
+			const exports = await module.exports;
+
+			await console.log(module);
+
+			//console.log(path);
+			//console.log("macros:", macros.map(m => m.name));
+			//console.log("exports:", exports);
 		}
 	}
 }
-
-//const reportErrors = (diagnostics: readonly Diagnostic[]) => {
-//    console.log(formatDiagnosticsWithColorAndContext(diagnostics, api))
-//};
-
-//// Parse command-line filenames and compiler options, report any errors.
-//const commandLineArgs = process.argv.slice(2);
-//const parsedCommandLine = api.parseCommandLine(commandLineArgs);
-//if (parsedCommandLine.errors.length > 0) {
-//    reportErrors(parsedCommandLine.errors);
-//    process.exit();
-//}
-
-//const config = api.parseJsonConfigFileContent("", { configDirectory: "" });
-//config.options
-//// Create the program by resolving and parsing all files in the entry point.
-//using program = api.createProgram(parsedCommandLine.fileNames, parsedCommandLine.options);
-//using program2 = api.createProgram()
-//// Collect and report any diagnostics from the program before emitting.
-//// You can customize whether any of these block reporting errors in subsequent passes if desired.
-//const diagnostics = [
-//    ...program.getGlobalDiagnostics(),
-//    ...program.getProgramDiagnostics(),
-//    ...program.getSyntacticDiagnostics(),
-//    ...program.getSemanticDiagnostics(),
-//];
-//if (diagnostics.length > 0) {
-//    reportErrors(diagnostics);
-//}
-
-//// Emit files - this respects the `noEmitOnError` option,
-//// so nothing will be emitted if an earlier step reported errors.
-//const emitResult = program.emit();
-//if (emitResult.diagnostics.length > 0) {
-//    reportErrors(emitResult.diagnostics);
-//}
